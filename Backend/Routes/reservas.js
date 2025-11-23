@@ -1,19 +1,27 @@
+
 // Routes/reservas.js - Rutas para gestión de reservas
 const express = require('express');
 const router = express.Router();
 const db = require('../config');
+const axios = require('axios'); // ✅ Importación necesaria
+
+// Configuración Supabase
+const SUPABASE_URL = 'https://urohgbxhaghxekactoug.supabase.co';
+
+const SUPABASE_API_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVyb2hnYnhoYWdoeGVrYWN0b3VnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM3ODEwMDgsImV4cCI6MjA3OTM1NzAwOH0.FgDepQafhCYUdmlzmRDkj9nLCLb2hOoNRScIFhZ-yZo'; // ✅ Reemplaza con tu API Key real
+
 
 // GET /api/reservas - Obtener todas las reservas
 router.get('/', async (req, res) => {
     try {
         const { fecha, cancha_id } = req.query;
-        
+
         const filters = {};
         if (fecha) filters.fecha = fecha;
         if (cancha_id) filters.cancha_id = parseInt(cancha_id);
-        
+
         const reservas = await db.getReservas(filters);
-        
+
         res.json({
             success: true,
             data: reservas
@@ -28,27 +36,47 @@ router.get('/', async (req, res) => {
     }
 });
 
-// GET /api/reservas/:id - Obtener una reserva por ID
+// ✅ GET /api/reservas/:id - Obtener una reserva por ID (corregido)
 router.get('/:id', async (req, res) => {
     try {
         const { id } = req.params;
-        
-        const response = await db.client.get(`/reservas?id=eq.${id}`);
+
+        // Validar que el ID sea numérico
+        if (isNaN(id)) {
+            return res.status(400).json({
+                success: false,
+                message: 'El ID debe ser un número válido'
+            });
+        }
+
+        // Construir la URL completa para Supabase
+        const url = `${SUPABASE_URL}/reservas?id=eq.${id}`;
+
+        // Hacer la petición a Supabase
+        const response = await axios.get(url, {
+            headers: {
+                apikey: SUPABASE_API_KEY,
+                Authorization: `Bearer ${SUPABASE_API_KEY}`,
+                Prefer: 'return=representation',
+                'Content-Type': 'application/json'
+            }
+        });
+
         const reserva = response.data[0];
-        
+
         if (!reserva) {
             return res.status(404).json({
                 success: false,
                 message: 'Reserva no encontrada'
             });
         }
-        
+
         res.json({
             success: true,
             data: reserva
         });
     } catch (error) {
-        console.error('Error obteniendo reserva:', error);
+        console.error('Error obteniendo reserva:', error.message);
         res.status(500).json({
             success: false,
             message: 'Error al obtener la reserva',
@@ -72,7 +100,7 @@ router.post('/', async (req, res) => {
             monto_seña,
             observaciones
         } = req.body;
-        
+
         // Validaciones
         if (!cancha_id || !cliente_id || !fecha || !hora_inicio || !hora_fin) {
             return res.status(400).json({
@@ -80,7 +108,7 @@ router.post('/', async (req, res) => {
                 message: 'Faltan campos requeridos'
             });
         }
-        
+
         // Verificar disponibilidad
         const disponible = await db.verificarDisponibilidad(
             parseInt(cancha_id),
@@ -88,14 +116,14 @@ router.post('/', async (req, res) => {
             hora_inicio,
             hora_fin
         );
-        
+
         if (!disponible) {
             return res.status(409).json({
                 success: false,
                 message: 'La cancha no está disponible en ese horario'
             });
         }
-        
+
         // Crear reserva
         const nuevaReserva = await db.createReserva({
             cancha_id: parseInt(cancha_id),
@@ -110,7 +138,7 @@ router.post('/', async (req, res) => {
             observaciones: observaciones || '',
             created_at: new Date().toISOString()
         });
-        
+
         res.status(201).json({
             success: true,
             message: 'Reserva creada exitosamente',
@@ -131,19 +159,19 @@ router.put('/:id', async (req, res) => {
     try {
         const { id } = req.params;
         const updateData = { ...req.body };
-        
+
         // Si se está cambiando horario o fecha, verificar disponibilidad
         if (updateData.fecha || updateData.hora_inicio || updateData.hora_fin) {
             const reservaActual = await db.client.get(`/reservas?id=eq.${id}`);
             const reserva = reservaActual.data[0];
-            
+
             if (!reserva) {
                 return res.status(404).json({
                     success: false,
                     message: 'Reserva no encontrada'
                 });
             }
-            
+
             const disponible = await db.verificarDisponibilidad(
                 updateData.cancha_id || reserva.cancha_id,
                 updateData.fecha || reserva.fecha,
@@ -151,7 +179,7 @@ router.put('/:id', async (req, res) => {
                 updateData.hora_fin || reserva.hora_fin,
                 parseInt(id)
             );
-            
+
             if (!disponible) {
                 return res.status(409).json({
                     success: false,
@@ -159,9 +187,9 @@ router.put('/:id', async (req, res) => {
                 });
             }
         }
-        
+
         const reservaActualizada = await db.updateReserva(parseInt(id), updateData);
-        
+
         res.json({
             success: true,
             message: 'Reserva actualizada exitosamente',
@@ -181,9 +209,9 @@ router.put('/:id', async (req, res) => {
 router.delete('/:id', async (req, res) => {
     try {
         const { id } = req.params;
-        
+
         await db.deleteReserva(parseInt(id));
-        
+
         res.json({
             success: true,
             message: 'Reserva eliminada exitosamente'
@@ -203,18 +231,18 @@ router.patch('/:id/estado', async (req, res) => {
     try {
         const { id } = req.params;
         const { estado_id } = req.body;
-        
+
         if (!estado_id) {
             return res.status(400).json({
                 success: false,
                 message: 'Se requiere estado_id'
             });
         }
-        
+
         const reservaActualizada = await db.updateReserva(parseInt(id), {
             estado_id: parseInt(estado_id)
         });
-        
+
         res.json({
             success: true,
             message: 'Estado de reserva actualizado',
