@@ -1,10 +1,18 @@
-// routes/auth.js - Rutas de autenticación
+// Routes/auth.js - Rutas de autenticación
 const express = require('express');
 const router = express.Router();
-const authController = require('../Controllers/authControllerCustom');
 const { body, validationResult } = require('express-validator');
 
-// Middleware para validar errores
+// Importar controlador de autenticación
+const {
+    registro,
+    login,
+    getPerfil,
+    actualizarPerfil,
+    verificarToken
+} = require('../Controllers/authControllerCustom');
+
+// Middleware para manejar errores de validación
 const handleValidationErrors = (req, res, next) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -17,27 +25,72 @@ const handleValidationErrors = (req, res, next) => {
     next();
 };
 
+// POST /api/auth/registro - Registrar nuevo cliente
+router.post('/registro', [
+    body('nombre')
+        .notEmpty().withMessage('El nombre es obligatorio')
+        .trim()
+        .isLength({ min: 2 }).withMessage('El nombre debe tener al menos 2 caracteres'),
+    body('telefono')
+        .notEmpty().withMessage('El teléfono es obligatorio')
+        .trim()
+        .matches(/^[0-9]{10,15}$/).withMessage('Teléfono inválido (10-15 dígitos)'),
+    body('email')
+        .optional()
+        .trim()
+        .isEmail().withMessage('Email inválido'),
+    body('password')
+        .optional()
+        .isLength({ min: 6 }).withMessage('La contraseña debe tener al menos 6 caracteres')
+], handleValidationErrors, registro);
+
 // POST /api/auth/login - Iniciar sesión
 router.post('/login', [
-    body('email').isEmail().withMessage('Email debe ser válido'),
-    body('password').notEmpty().withMessage('Contraseña es requerida'),
-    handleValidationErrors
-], authController.login);
+    body('email')
+        .optional()
+        .trim()
+        .isEmail().withMessage('Email inválido'),
+    body('telefono')
+        .optional()
+        .trim(),
+    body('password')
+        .optional()
+], handleValidationErrors, login);
 
-// POST /api/auth/registro - Registrar nuevo usuario
-router.post('/registro', [
-    body('nombre').notEmpty().isLength({ min: 2, max: 50 })
-        .withMessage('Nombre debe tener entre 2 y 50 caracteres'),
-    body('apellido').notEmpty().isLength({ min: 2, max: 50 })
-        .withMessage('Apellido debe tener entre 2 y 50 caracteres'),
-    body('email').isEmail().withMessage('Email debe ser válido'),
-    body('telefono').notEmpty().withMessage('Teléfono es requerido'),
-    body('password').isLength({ min: 6 })
-        .withMessage('Contraseña debe tener al menos 6 caracteres'),
-    handleValidationErrors
-], authController.registro);
+// GET /api/auth/perfil - Obtener perfil del usuario autenticado
+router.get('/perfil', verificarToken, getPerfil);
 
-// POST /api/auth/verificar - Verificar sesión activa
-router.post('/verificar', authController.verificarSesion);
+// PUT /api/auth/perfil - Actualizar perfil del usuario autenticado
+router.put('/perfil', [
+    verificarToken,
+    body('nombre')
+        .optional()
+        .trim()
+        .isLength({ min: 2 }).withMessage('El nombre debe tener al menos 2 caracteres'),
+    body('email')
+        .optional()
+        .trim()
+        .isEmail().withMessage('Email inválido'),
+    body('telefono')
+        .optional()
+        .trim()
+        .matches(/^[0-9]{10,15}$/).withMessage('Teléfono inválido'),
+    body('password')
+        .optional()
+        .isLength({ min: 6 }).withMessage('La contraseña debe tener al menos 6 caracteres')
+], handleValidationErrors, actualizarPerfil);
+
+// POST /api/auth/verificar - Verificar si el token es válido
+router.post('/verificar', verificarToken, (req, res) => {
+    res.json({
+        success: true,
+        message: 'Token válido',
+        data: {
+            id: req.user.id,
+            email: req.user.email,
+            tipo: req.user.tipo
+        }
+    });
+});
 
 module.exports = router;

@@ -7,10 +7,34 @@ const path = require('path');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Middlewares de configuración
+// Configuración de CORS MEJORADA - DEBE IR ANTES DE LAS RUTAS
 app.use(cors({
-    origin: process.env.FRONTEND_URL || 'http://localhost:3000',
-    credentials: true
+    origin: function(origin, callback) {
+        // Permitir requests sin origin (como Postman, aplicaciones móviles, etc)
+        if (!origin) return callback(null, true);
+        
+        // Lista de orígenes permitidos
+        const allowedOrigins = [
+            'http://localhost:3000',
+            'http://localhost:3001',
+            'http://localhost:5500',
+            'http://localhost:5501',
+            'http://127.0.0.1:5500',
+            'http://127.0.0.1:5501',
+            'http://127.0.0.1:3000',
+            'http://127.0.0.1:3001'
+        ];
+        
+        if (allowedOrigins.indexOf(origin) !== -1) {
+            callback(null, true);
+        } else {
+            console.log('⚠️ Origen no permitido:', origin);
+            callback(null, true); // Permitir de todos modos durante desarrollo
+        }
+    },
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
 // Middlewares de parsing
@@ -39,7 +63,8 @@ app.get('/api/test', (req, res) => {
     res.json({
         success: true,
         message: 'API funcionando correctamente',
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        cors: 'habilitado'
     });
 });
 
@@ -105,9 +130,10 @@ app.use('*', (req, res) => {
 // Inicializar servidor
 app.listen(PORT, async () => {
     console.log('========================================');
-    console.log(`Servidor corriendo en puerto ${PORT}`);
-    console.log(`URL: http://localhost:${PORT}`);
-    console.log(`API: http://localhost:${PORT}/api`);
+    console.log(`🚀 Servidor corriendo en puerto ${PORT}`);
+    console.log(`🌐 URL: http://localhost:${PORT}`);
+    console.log(`📡 API: http://localhost:${PORT}/api`);
+    console.log(`🔓 CORS: Habilitado para desarrollo`);
     console.log('========================================');
     
     // Inicializar base de datos
@@ -127,14 +153,14 @@ app.listen(PORT, async () => {
 
 // Manejo de cierre graceful
 process.on('SIGINT', async () => {
-    console.log('\nCerrando servidor...');
+    console.log('\n🛑 Cerrando servidor...');
     try {
         const db = require('./config');
         await db.close();
-        console.log('Conexiones cerradas correctamente');
+        console.log('✅ Conexiones cerradas correctamente');
         process.exit(0);
     } catch (err) {
-        console.error('Error cerrando conexiones:', err);
+        console.error('❌ Error cerrando conexiones:', err);
         process.exit(1);
     }
 });

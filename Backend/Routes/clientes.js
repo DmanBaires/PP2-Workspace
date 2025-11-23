@@ -1,125 +1,173 @@
-// src/routes/clientes.js - Rutas para el manejo de clientes
+// Routes/clientes.js - Rutas para gestión de clientes
 const express = require('express');
 const router = express.Router();
-const clienteController = require('../Controllers/clienteController');
-const { body, param, query, validationResult } = require('express-validator');
 const db = require('../config');
 
-// Middleware para validar errores
-const handleValidationErrors = (req, res, next) => {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-        return res.status(400).json({
-            success: false,
-            message: 'Errores de validación',
-            errors: errors.array()
-        });
-    }
-    next();
-};
-
 // GET /api/clientes - Obtener todos los clientes
-router.get('/', [
-    query('limite').optional().isInt({ min: 1, max: 100 }).withMessage('Límite debe estar entre 1 y 100'),
-    query('buscar').optional().isString().isLength({ min: 2, max: 50 })
-        .withMessage('Búsqueda debe tener entre 2 y 50 caracteres'),
-    handleValidationErrors
-], clienteController.obtenerClientes);
-
-// GET /api/clientes/buscar-telefono - Buscar cliente por teléfono
-router.get('/buscar-telefono', [
-    query('telefono').notEmpty().isMobilePhone('any').withMessage('Teléfono es requerido y debe ser válido'),
-    handleValidationErrors
-], clienteController.buscarPorTelefono);
-
-// GET /api/clientes/:id - Obtener cliente específico
-router.get('/:id', [
-    param('id').isInt({ min: 1 }).withMessage('ID debe ser un número positivo'),
-    handleValidationErrors
-], clienteController.obtenerClientePorId);
-
-// GET /api/clientes/:id/estadisticas - Obtener estadísticas del cliente
-router.get('/:id/estadisticas', [
-    param('id').isInt({ min: 1 }).withMessage('ID debe ser un número positivo'),
-    handleValidationErrors
-], clienteController.obtenerEstadisticas);
-
-// POST /api/clientes - Crear nuevo cliente
-router.post('/', [
-    body('nombre').notEmpty().isLength({ min: 2, max: 50 })
-        .withMessage('Nombre es requerido y debe tener entre 2 y 50 caracteres')
-        .matches(/^[a-zA-ZáéíóúÁÉÍÓÚñÑ\s]+$/).withMessage('Nombre solo puede contener letras y espacios'),
-    body('apellido').notEmpty().isLength({ min: 2, max: 50 })
-        .withMessage('Apellido es requerido y debe tener entre 2 y 50 caracteres')
-        .matches(/^[a-zA-ZáéíóúÁÉÍÓÚñÑ\s]+$/).withMessage('Apellido solo puede contener letras y espacios'),
-    body('telefono').notEmpty().isMobilePhone('any').withMessage('Teléfono es requerido y debe ser válido'),
-    body('email').optional().isEmail().withMessage('Email debe tener formato válido'),
-    handleValidationErrors
-], clienteController.crearCliente);
-
-// PUT /api/clientes/:id - Actualizar cliente
-router.put('/:id', [
-    param('id').isInt({ min: 1 }).withMessage('ID debe ser un número positivo'),
-    body('nombre').optional().isLength({ min: 2, max: 50 })
-        .withMessage('Nombre debe tener entre 2 y 50 caracteres')
-        .matches(/^[a-zA-ZáéíóúÁÉÍÓÚñÑ\s]+$/).withMessage('Nombre solo puede contener letras y espacios'),
-    body('apellido').optional().isLength({ min: 2, max: 50 })
-        .withMessage('Apellido debe tener entre 2 y 50 caracteres')
-        .matches(/^[a-zA-ZáéíóúÁÉÍÓÚñÑ\s]+$/).withMessage('Apellido solo puede contener letras y espacios'),
-    body('telefono').optional().isMobilePhone('any').withMessage('Teléfono debe ser válido'),
-    body('email').optional().isEmail().withMessage('Email debe tener formato válido'),
-    body('tipo_cliente_id').optional().isInt({ min: 1, max: 3 }).withMessage('Tipo de cliente inválido'),
-    handleValidationErrors
-], clienteController.actualizarCliente);
-
-// PUT /api/clientes/:id/estado - Cambiar estado del cliente
-router.put('/:id/estado', [
-    param('id').isInt({ min: 1 }).withMessage('ID debe ser un número positivo'),
-    body('estado').isIn(['activo', 'suspendido', 'bloqueado']).withMessage('Estado inválido'),
-    body('razon').optional().isString().isLength({ max: 200 })
-        .withMessage('Razón no puede exceder 200 caracteres'),
-    handleValidationErrors
-], clienteController.cambiarEstadoCliente);
-
-// GET /api/clientes/tipos - Obtener tipos de cliente disponibles
-router.get('/tipos/lista', async (req, res) => {
+router.get('/', async (req, res) => {
     try {
-        const tipos = await db.all(`
-            SELECT id, nombre, descuento_porcentaje, min_reservas_mes, descripcion
-            FROM tipos_cliente
-            ORDER BY id ASC
-        `);
+        const clientes = await db.getClientes();
         
         res.json({
             success: true,
-            data: tipos
+            data: clientes
         });
-        
     } catch (error) {
-        console.error('Error obteniendo tipos de cliente:', error);
+        console.error('Error obteniendo clientes:', error);
         res.status(500).json({
             success: false,
-            message: 'Error interno del servidor'
+            message: 'Error al obtener los clientes',
+            error: error.message
         });
     }
 });
 
-// POST /api/clientes/actualizar-tipos - Actualizar automáticamente tipos de cliente
-router.post('/actualizar-tipos', async (req, res) => {
+// GET /api/clientes/:id - Obtener un cliente por ID
+router.get('/:id', async (req, res) => {
     try {
-        // Obtener configuraciones
-        const reservasFrec = await db.getConfiguracion('min_reservas_frecuente') || 4;
-        const reservasVip = await db.getConfiguracion('min_reservas_vip') || 8;
+        const { id } = req.params;
+        const cliente = await db.getClienteById(parseInt(id));
         
-        // Actualizar clientes a tipo frecuente
-        await db.run(`
-            UPDATE clientes c
-            SET tipo_cliente_id = 2
-            WHERE c.total_reservas >= ? AND c.total_reservas < ? AND c.tipo_cliente_id = 1
-        `, [reservasFrec, reservasVip]);
+        if (!cliente) {
+            return res.status(404).json({
+                success: false,
+                message: 'Cliente no encontrado'
+            });
+        }
+        
+        res.json({
+            success: true,
+            data: cliente
+        });
     } catch (error) {
-        console.error('Error al actualizar los tipos de cliente:', error);
-        res.status(500).json({ error: 'Error interno del servidor.' });
+        console.error('Error obteniendo cliente:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error al obtener el cliente',
+            error: error.message
+        });
+    }
+});
+
+// POST /api/clientes - Crear nuevo cliente
+router.post('/', async (req, res) => {
+    try {
+        const {
+            nombre,
+            email,
+            telefono,
+            tipo_cliente_id,
+            observaciones
+        } = req.body;
+        
+        // Validaciones
+        if (!nombre || !telefono) {
+            return res.status(400).json({
+                success: false,
+                message: 'Faltan campos requeridos: nombre, telefono'
+            });
+        }
+        
+        const nuevoCliente = await db.createCliente({
+            nombre,
+            email: email || null,
+            telefono,
+            tipo_cliente_id: parseInt(tipo_cliente_id) || 1,
+            observaciones: observaciones || '',
+            created_at: new Date().toISOString()
+        });
+        
+        res.status(201).json({
+            success: true,
+            message: 'Cliente creado exitosamente',
+            data: nuevoCliente
+        });
+    } catch (error) {
+        console.error('Error creando cliente:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error al crear el cliente',
+            error: error.message
+        });
+    }
+});
+
+// PUT /api/clientes/:id - Actualizar cliente
+router.put('/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const updateData = { ...req.body };
+        
+        // Convertir tipos si es necesario
+        if (updateData.tipo_cliente_id) {
+            updateData.tipo_cliente_id = parseInt(updateData.tipo_cliente_id);
+        }
+        
+        const clienteActualizado = await db.updateCliente(parseInt(id), updateData);
+        
+        if (!clienteActualizado) {
+            return res.status(404).json({
+                success: false,
+                message: 'Cliente no encontrado'
+            });
+        }
+        
+        res.json({
+            success: true,
+            message: 'Cliente actualizado exitosamente',
+            data: clienteActualizado
+        });
+    } catch (error) {
+        console.error('Error actualizando cliente:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error al actualizar el cliente',
+            error: error.message
+        });
+    }
+});
+
+// DELETE /api/clientes/:id - Eliminar cliente
+router.delete('/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        
+        await db.client.delete(`/clientes?id=eq.${id}`);
+        
+        res.json({
+            success: true,
+            message: 'Cliente eliminado exitosamente'
+        });
+    } catch (error) {
+        console.error('Error eliminando cliente:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error al eliminar el cliente',
+            error: error.message
+        });
+    }
+});
+
+// GET /api/clientes/:id/reservas - Obtener reservas de un cliente
+router.get('/:id/reservas', async (req, res) => {
+    try {
+        const { id } = req.params;
+        
+        const response = await db.client.get(
+            `/reservas?cliente_id=eq.${id}&order=fecha.desc`
+        );
+        
+        res.json({
+            success: true,
+            data: response.data
+        });
+    } catch (error) {
+        console.error('Error obteniendo reservas del cliente:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error al obtener las reservas del cliente',
+            error: error.message
+        });
     }
 });
 

@@ -1,65 +1,40 @@
-// src/routes/reservas.js - Rutas para el manejo de reservas
+// Routes/reservas.js - Rutas para gestión de reservas
 const express = require('express');
 const router = express.Router();
-const reservaController = require('../Controllers/reservaController');
-const { body, param, query, validationResult } = require('express-validator');
 const db = require('../config');
 
-// Middleware para validar errores
-const handleValidationErrors = (req, res, next) => {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-        return res.status(400).json({
+// GET /api/reservas - Obtener todas las reservas
+router.get('/', async (req, res) => {
+    try {
+        const { fecha, cancha_id } = req.query;
+        
+        const filters = {};
+        if (fecha) filters.fecha = fecha;
+        if (cancha_id) filters.cancha_id = parseInt(cancha_id);
+        
+        const reservas = await db.getReservas(filters);
+        
+        res.json({
+            success: true,
+            data: reservas
+        });
+    } catch (error) {
+        console.error('Error obteniendo reservas:', error);
+        res.status(500).json({
             success: false,
-            message: 'Errores de validación',
-            errors: errors.array()
+            message: 'Error al obtener las reservas',
+            error: error.message
         });
     }
-    next();
-};
+});
 
-// GET /api/reservas - Obtener todas las reservas con filtros
-router.get('/', [
-    query('fecha').optional().isISO8601().withMessage('Formato de fecha inválido (YYYY-MM-DD)'),
-    query('cancha_id').optional().isInt({ min: 1 }).withMessage('ID de cancha debe ser un número positivo'),
-    query('cliente_id').optional().isInt({ min: 1 }).withMessage('ID de cliente debe ser un número positivo'),
-    query('estado').optional().isIn(['pendiente', 'confirmada', 'cancelada', 'completada', 'no_show'])
-        .withMessage('Estado inválido'),
-    query('limite').optional().isInt({ min: 1, max: 100 }).withMessage('Límite debe estar entre 1 y 100'),
-    handleValidationErrors
-], reservaController.obtenerReservas);
-
-// GET /api/reservas/disponibilidad - Verificar disponibilidad de canchas
-router.get('/disponibilidad', [
-    query('fecha').notEmpty().isISO8601().withMessage('Fecha es requerida y debe tener formato YYYY-MM-DD'),
-    query('cancha_id').optional().isInt({ min: 1 }).withMessage('ID de cancha debe ser un número positivo'),
-    handleValidationErrors
-], reservaController.obtenerDisponibilidad);
-
-// GET /api/reservas/:id - Obtener una reserva específica
-router.get('/:id', [
-    param('id').isInt({ min: 1 }).withMessage('ID debe ser un número positivo'),
-    handleValidationErrors
-], async (req, res) => {
+// GET /api/reservas/:id - Obtener una reserva por ID
+router.get('/:id', async (req, res) => {
     try {
         const { id } = req.params;
-        const reserva = await db.get(`
-            SELECT 
-                r.*,
-                c.nombre as cancha_nombre,
-                c.precio_por_hora,
-                cl.nombre as cliente_nombre,
-                cl.apellido as cliente_apellido,
-                cl.telefono as cliente_telefono,
-                cl.email as cliente_email,
-                er.nombre as estado,
-                er.descripcion as estado_descripcion
-            FROM reservas r
-            JOIN canchas c ON r.cancha_id = c.id
-            JOIN clientes cl ON r.cliente_id = cl.id
-            JOIN estados_reserva er ON r.estado_id = er.id
-            WHERE r.id = ?
-        `, [id]);
+        
+        const response = await db.client.get(`/reservas?id=eq.${id}`);
+        const reserva = response.data[0];
         
         if (!reserva) {
             return res.status(404).json({
@@ -68,177 +43,189 @@ router.get('/:id', [
             });
         }
         
-        // Obtener historial de pagos
-        const pagos = await db.all(
-            'SELECT * FROM pagos WHERE reserva_id = ? ORDER BY fecha_pago ASC',
-            [id]
-        );
-        
         res.json({
             success: true,
-            data: {
-                ...reserva,
-                pagos: pagos
-            }
+            data: reserva
         });
-        
     } catch (error) {
         console.error('Error obteniendo reserva:', error);
         res.status(500).json({
             success: false,
-            message: 'Error interno del servidor'
+            message: 'Error al obtener la reserva',
+            error: error.message
         });
     }
 });
 
 // POST /api/reservas - Crear nueva reserva
-router.post('/', [
-    body('cancha_id').isInt({ min: 1 }).withMessage('ID de cancha es requerido y debe ser válido'),
-    body('cliente_id').isInt({ min: 1 }).withMessage('ID de cliente es requerido y debe ser válido'),
-    body('fecha').isISO8601().withMessage('Fecha es requerida (formato YYYY-MM-DD)'),
-    body('hora_inicio').matches(/^([01]?[0-9]|2[0-3]):[0-5][0-9]$/)
-        .withMessage('Hora de inicio debe tener formato HH:MM'),
-    body('hora_fin').matches(/^([01]?[0-9]|2[0-3]):[0-5][0-9]$/)
-        .withMessage('Hora de fin debe tener formato HH:MM'),
-    body('observaciones').optional().isString().isLength({ max: 500 })
-        .withMessage('Observaciones no pueden exceder 500 caracteres'),
-    handleValidationErrors
-], reservaController.crearReserva);
-
-// PUT /api/reservas/:id/confirmar - Confirmar reserva con pago
-router.put('/:id/confirmar', [
-    param('id').isInt({ min: 1 }).withMessage('ID debe ser un número positivo'),
-    body('monto_pagado').isFloat({ min: 0 }).withMessage('Monto pagado debe ser un número positivo'),
-    body('metodo_pago').isIn(['efectivo', 'tarjeta', 'transferencia'])
-        .withMessage('Método de pago inválido'),
-    handleValidationErrors
-], reservaController.confirmarReserva);
-
-// PUT /api/reservas/:id/cancelar - Cancelar reserva
-router.put('/:id/cancelar', [
-    param('id').isInt({ min: 1 }).withMessage('ID debe ser un número positivo'),
-    body('razon').optional().isString().isLength({ max: 200 })
-        .withMessage('Razón de cancelación no puede exceder 200 caracteres'),
-    handleValidationErrors
-], reservaController.cancelarReserva);
-
-// PUT /api/reservas/:id/completar - Marcar reserva como completada
-router.put('/:id/completar', [
-    param('id').isInt({ min: 1 }).withMessage('ID debe ser un número positivo'),
-    handleValidationErrors
-], async (req, res) => {
+router.post('/', async (req, res) => {
     try {
-        const { id } = req.params;
-        const reserva = await db.get('SELECT * FROM reservas WHERE id = ?', [id]);
+        const {
+            cancha_id,
+            cliente_id,
+            fecha,
+            hora_inicio,
+            hora_fin,
+            precio_total,
+            estado_id,
+            seña_pagada,
+            monto_seña,
+            observaciones
+        } = req.body;
         
-        if (!reserva) {
-            return res.status(404).json({
-                success: false,
-                message: 'Reserva no encontrada'
-            });
-        }
-        
-        if (reserva.estado_id !== 2) {
+        // Validaciones
+        if (!cancha_id || !cliente_id || !fecha || !hora_inicio || !hora_fin) {
             return res.status(400).json({
                 success: false,
-                message: 'Solo se pueden completar reservas confirmadas'
+                message: 'Faltan campos requeridos'
             });
         }
         
-        await db.run('UPDATE reservas SET estado_id = 4 WHERE id = ?', [id]);
+        // Verificar disponibilidad
+        const disponible = await db.verificarDisponibilidad(
+            parseInt(cancha_id),
+            fecha,
+            hora_inicio,
+            hora_fin
+        );
         
-        res.json({
-            success: true,
-            message: 'Reserva marcada como completada'
+        if (!disponible) {
+            return res.status(409).json({
+                success: false,
+                message: 'La cancha no está disponible en ese horario'
+            });
+        }
+        
+        // Crear reserva
+        const nuevaReserva = await db.createReserva({
+            cancha_id: parseInt(cancha_id),
+            cliente_id: parseInt(cliente_id),
+            fecha,
+            hora_inicio,
+            hora_fin,
+            precio_total: parseFloat(precio_total),
+            estado_id: parseInt(estado_id) || 1, // 1 = pendiente por defecto
+            seña_pagada: seña_pagada || false,
+            monto_seña: monto_seña ? parseFloat(monto_seña) : 0,
+            observaciones: observaciones || '',
+            created_at: new Date().toISOString()
         });
         
+        res.status(201).json({
+            success: true,
+            message: 'Reserva creada exitosamente',
+            data: nuevaReserva
+        });
     } catch (error) {
-        console.error('Error completando reserva:', error);
+        console.error('Error creando reserva:', error);
         res.status(500).json({
             success: false,
-            message: 'Error interno del servidor'
+            message: 'Error al crear la reserva',
+            error: error.message
         });
     }
 });
 
-// PUT /api/reservas/:id/no-show - Marcar como no presentado
-router.put('/:id/no-show', [
-    param('id').isInt({ min: 1 }).withMessage('ID debe ser un número positivo'),
-    handleValidationErrors
-], async (req, res) => {
+// PUT /api/reservas/:id - Actualizar reserva
+router.put('/:id', async (req, res) => {
     try {
         const { id } = req.params;
-        const reserva = await db.get('SELECT * FROM reservas WHERE id = ?', [id]);
+        const updateData = { ...req.body };
         
-        if (!reserva) {
-            return res.status(404).json({
-                success: false,
-                message: 'Reserva no encontrada'
-            });
+        // Si se está cambiando horario o fecha, verificar disponibilidad
+        if (updateData.fecha || updateData.hora_inicio || updateData.hora_fin) {
+            const reservaActual = await db.client.get(`/reservas?id=eq.${id}`);
+            const reserva = reservaActual.data[0];
+            
+            if (!reserva) {
+                return res.status(404).json({
+                    success: false,
+                    message: 'Reserva no encontrada'
+                });
+            }
+            
+            const disponible = await db.verificarDisponibilidad(
+                updateData.cancha_id || reserva.cancha_id,
+                updateData.fecha || reserva.fecha,
+                updateData.hora_inicio || reserva.hora_inicio,
+                updateData.hora_fin || reserva.hora_fin,
+                parseInt(id)
+            );
+            
+            if (!disponible) {
+                return res.status(409).json({
+                    success: false,
+                    message: 'La cancha no está disponible en ese horario'
+                });
+            }
         }
         
-        if (reserva.estado_id !== 2) {
-            return res.status(400).json({
-                success: false,
-                message: 'Solo se pueden marcar como no-show reservas confirmadas'
-            });
-        }
-        
-        // Actualizar reserva y incrementar contador de no-shows del cliente
-        await db.transaction(async (conn) => {
-            await conn.query('UPDATE reservas SET estado_id = 5 WHERE id = ?', [id]);
-            await conn.query('UPDATE clientes SET no_shows = no_shows + 1 WHERE id = ?', [reserva.cliente_id]);
-        });
+        const reservaActualizada = await db.updateReserva(parseInt(id), updateData);
         
         res.json({
             success: true,
-            message: 'Reserva marcada como no-show'
+            message: 'Reserva actualizada exitosamente',
+            data: reservaActualizada
         });
-        
     } catch (error) {
-        console.error('Error marcando no-show:', error);
+        console.error('Error actualizando reserva:', error);
         res.status(500).json({
             success: false,
-            message: 'Error interno del servidor'
+            message: 'Error al actualizar la reserva',
+            error: error.message
         });
     }
 });
 
-// DELETE /api/reservas/:id - Eliminar reserva (solo admin)
-router.delete('/:id', [
-    param('id').isInt({ min: 1 }).withMessage('ID debe ser un número positivo'),
-    handleValidationErrors
-], async (req, res) => {
+// DELETE /api/reservas/:id - Cancelar/eliminar reserva
+router.delete('/:id', async (req, res) => {
     try {
         const { id } = req.params;
-        const reserva = await db.get('SELECT * FROM reservas WHERE id = ?', [id]);
         
-        if (!reserva) {
-            return res.status(404).json({
-                success: false,
-                message: 'Reserva no encontrada'
-            });
-        }
-        
-        await db.transaction(async (conn) => {
-            // Eliminar pagos relacionados
-            await conn.query('DELETE FROM pagos WHERE reserva_id = ?', [id]);
-            // Eliminar reserva
-            await conn.query('DELETE FROM reservas WHERE id = ?', [id]);
-            // Decrementar contador del cliente
-            await conn.query('UPDATE clientes SET total_reservas = total_reservas - 1 WHERE id = ?', [reserva.cliente_id]);
-        });
+        await db.deleteReserva(parseInt(id));
         
         res.json({
             success: true,
             message: 'Reserva eliminada exitosamente'
         });
-        
     } catch (error) {
         console.error('Error eliminando reserva:', error);
         res.status(500).json({
             success: false,
-            message: 'Error interno del servidor'
+            message: 'Error al eliminar la reserva',
+            error: error.message
+        });
+    }
+});
+
+// PATCH /api/reservas/:id/estado - Cambiar estado de reserva
+router.patch('/:id/estado', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { estado_id } = req.body;
+        
+        if (!estado_id) {
+            return res.status(400).json({
+                success: false,
+                message: 'Se requiere estado_id'
+            });
+        }
+        
+        const reservaActualizada = await db.updateReserva(parseInt(id), {
+            estado_id: parseInt(estado_id)
+        });
+        
+        res.json({
+            success: true,
+            message: 'Estado de reserva actualizado',
+            data: reservaActualizada
+        });
+    } catch (error) {
+        console.error('Error actualizando estado:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error al actualizar el estado',
+            error: error.message
         });
     }
 });

@@ -1,296 +1,300 @@
-// ./config/supabase.js - Configuración y conexión a Supabase (PostgreSQL)
-const { Pool } = require('pg');
+// ./config/supabase.js - Conexión a Supabase usando REST API
+const axios = require('axios');
 
 class SupabaseDatabase {
     constructor() {
-        this.pool = null;
-        this.config = {
-            // Credenciales de Supabase
-            host: process.env.SUPABASE_HOST,           // ejemplo: db.xxxxxxxxxxxx.supabase.co
-            port: process.env.SUPABASE_PORT || 5432,
-            user: process.env.SUPABASE_USER || 'postgres',
-            password: process.env.SUPABASE_PASSWORD,   // Tu contraseña de Supabase
-            database: process.env.SUPABASE_DB || 'postgres',
+        this.baseUrl = process.env.SUPABASE_URL;
+        // Usar SERVICE_ROLE_KEY para el backend (tiene permisos totales)
+        this.apiKey = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_ANON_KEY;
+        
+        if (!this.baseUrl || !this.apiKey) {
+            throw new Error('Faltan SUPABASE_URL y SUPABASE_ANON_KEY en .env');
+        }
 
-            // Configuración de SSL (requerido para Supabase)
-            ssl: {
-                rejectUnauthorized: false
+        // Cliente HTTP con configuración
+        this.client = axios.create({
+            baseURL: `${this.baseUrl}/rest/v1`,
+            headers: {
+                'apikey': this.apiKey,
+                'Authorization': `Bearer ${this.apiKey}`,
+                'Content-Type': 'application/json',
+                'Prefer': 'return=representation'
             },
-
-            // Pool de conexiones
-            max: 10,
-            idleTimeoutMillis: 30000,
-            connectionTimeoutMillis: 60000
-        };
+            timeout: 10000
+        });
     }
 
     async initialize() {
         try {
-            // Validar que las credenciales existan
-            if (!this.config.host || !this.config.password) {
-                throw new Error('Faltan credenciales de Supabase. Verifica tu archivo .env');
-            }
-
-            // Crear pool de conexiones
-            this.pool = new Pool(this.config);
-
+            console.log('🔗 Conectando a Supabase via REST API...');
+            console.log(`🌐 URL: ${this.baseUrl}`);
+            
             // Probar la conexión
-            const client = await this.pool.connect();
-            console.log('✅ Conectado a Supabase (PostgreSQL) exitosamente');
-            console.log(`📊 Base de datos: ${this.config.database}`);
-            console.log(`🌐 Host: ${this.config.host}`);
-
-            client.release();
-
-            // Verificar que las tablas existen
+            const response = await this.client.get('/canchas?limit=1');
+            
+            console.log('✅ Conectado a Supabase (REST API) exitosamente');
+            
+            // Verificar tablas
             await this.verifyTables();
-
+            
         } catch (error) {
             console.error('❌ Error conectando a Supabase:', error.message);
+            if (error.response) {
+                console.error('Código de respuesta:', error.response.status);
+                console.error('Mensaje:', error.response.data);
+            }
             throw error;
         }
     }
 
     async verifyTables() {
         try {
-            const query = `
-                SELECT table_name
-                FROM information_schema.tables
-                WHERE table_schema = 'public'
-                AND table_type = 'BASE TABLE'
-            `;
-
-            const result = await this.pool.query(query);
-            const tableNames = result.rows.map(row => row.table_name);
-
-            const expectedTables = [
+            const tables = [
                 'canchas', 'tipos_cliente', 'clientes', 'estados_reserva',
                 'reservas', 'pagos', 'configuraciones', 'bloqueos_horarios',
                 'usuarios', 'dias_bloqueados'
             ];
 
-            const missingTables = expectedTables.filter(table => !tableNames.includes(table));
+            const results = await Promise.allSettled(
+                tables.map(table => this.client.get(`/${table}?limit=1`))
+            );
+
+            const missingTables = tables.filter((table, index) => 
+                results[index].status === 'rejected'
+            );
 
             if (missingTables.length > 0) {
-                console.warn('⚠️  Tablas faltantes:', missingTables.join(', '));
-                console.log('💡 Ejecuta el script supabase_schema.sql en el SQL Editor de Supabase');
+                console.warn('⚠️  Tablas faltantes o inaccesibles:', missingTables.join(', '));
             } else {
-                console.log('✅ Todas las tablas están presentes');
+                console.log('✅ Todas las tablas están accesibles');
             }
-
         } catch (error) {
-            console.error('Error verificando tablas:', error);
+            console.warn('⚠️  No se pudo verificar todas las tablas');
         }
     }
 
-    // Obtener conexión del pool
-    async getConnection() {
-        return await this.pool.connect();
-    }
-
-    // Convertir placeholders de MariaDB (?) a PostgreSQL ($1, $2, $3)
-    convertPlaceholders(sql) {
-        let index = 0;
-        return sql.replace(/\?/g, () => `$${++index}`);
-    }
-
-    // Ejecutar consulta que retorna múltiples filas
+    // Ejecutar consulta SELECT
     async query(sql, params = []) {
-        try {
-            // Convertir placeholders si hay ?
-            const convertedSql = this.convertPlaceholders(sql);
-            const result = await this.pool.query(convertedSql, params);
-            return result.rows;
-        } catch (error) {
-            console.error('Error en consulta:', sql);
-            console.error('Params:', params);
-            throw error;
+        // Para queries básicas, usar la API REST
+        // Nota: SQL directo no está disponible via REST, necesitas usar los endpoints de tabla
+        throw new Error('Usa métodos específicos de tabla en lugar de SQL directo');
+    }
+
+    // Métodos helpers para cada tabla
+    async getCanchas() {
+        const response = await this.client.get('/canchas?order=id.asc');
+        return response.data;
+    }
+
+    async getCanchaById(id) {
+        const response = await this.client.get(`/canchas?id=eq.${id}`);
+        return response.data[0] || null;
+    }
+
+    async getReservas(filters = {}) {
+        let url = '/reservas?order=fecha.desc,hora_inicio.desc';
+        
+        if (filters.fecha) {
+            url += `&fecha=eq.${filters.fecha}`;
         }
-    }
-
-    // Ejecutar consulta que retorna una sola fila
-    async queryOne(sql, params = []) {
-        try {
-            // Convertir placeholders si hay ?
-            const convertedSql = this.convertPlaceholders(sql);
-            const result = await this.pool.query(convertedSql, params);
-            return result.rows.length > 0 ? result.rows[0] : null;
-        } catch (error) {
-            console.error('Error en consulta:', sql);
-            console.error('Params:', params);
-            throw error;
+        if (filters.cancha_id) {
+            url += `&cancha_id=eq.${filters.cancha_id}`;
         }
+        
+        const response = await this.client.get(url);
+        return response.data;
     }
 
-    // Alias para compatibilidad con código MariaDB
-    async all(sql, params = []) {
-        return this.query(sql, params);
+    async createReserva(data) {
+        const response = await this.client.post('/reservas', data);
+        return response.data[0];
     }
 
-    async get(sql, params = []) {
-        return this.queryOne(sql, params);
+    async updateReserva(id, data) {
+        const response = await this.client.patch(`/reservas?id=eq.${id}`, data);
+        return response.data[0];
     }
 
-    async run(sql, params = []) {
-        try {
-            // Convertir placeholders si hay ?
-            const convertedSql = this.convertPlaceholders(sql);
-            const result = await this.pool.query(convertedSql, params);
-            return {
-                id: result.rows[0]?.id || null,
-                affectedRows: result.rowCount
-            };
-        } catch (error) {
-            console.error('Error en run:', sql);
-            console.error('Params:', params);
-            throw error;
-        }
+    async deleteReserva(id) {
+        await this.client.delete(`/reservas?id=eq.${id}`);
+        return { success: true };
     }
 
-    // Método para transacciones
-    async transaction(callback) {
-        const client = await this.pool.connect();
-        try {
-            await client.query('BEGIN');
-            const result = await callback(client);
-            await client.query('COMMIT');
-            return result;
-        } catch (error) {
-            await client.query('ROLLBACK');
-            throw error;
-        } finally {
-            client.release();
-        }
+    async getClientes() {
+        const response = await this.client.get('/clientes?order=nombre.asc');
+        return response.data;
+    }
+
+    async getClienteById(id) {
+        const response = await this.client.get(`/clientes?id=eq.${id}`);
+        return response.data[0] || null;
+    }
+
+    async getClienteByEmail(email) {
+        const response = await this.client.get(`/clientes?email=eq.${email}`);
+        return response.data[0] || null;
+    }
+
+    async getClienteByTelefono(telefono) {
+        const response = await this.client.get(`/clientes?telefono=eq.${telefono}`);
+        return response.data[0] || null;
+    }
+
+    async createCliente(data) {
+        const response = await this.client.post('/clientes', data);
+        return response.data[0];
+    }
+
+    async updateCliente(id, data) {
+        const response = await this.client.patch(`/clientes?id=eq.${id}`, data);
+        return response.data[0];
+    }
+
+    async getEstadosReserva() {
+        const response = await this.client.get('/estados_reserva');
+        return response.data;
+    }
+
+    async getDiasBloqueados() {
+        const response = await this.client.get('/dias_bloqueados?order=fecha.asc');
+        return response.data;
+    }
+
+    async createDiaBloqueado(data) {
+        const response = await this.client.post('/dias_bloqueados', data);
+        return response.data[0];
+    }
+
+    async deleteDiaBloqueado(id) {
+        await this.client.delete(`/dias_bloqueados?id=eq.${id}`);
+        return { success: true };
     }
 
     // Verificar disponibilidad de cancha
     async verificarDisponibilidad(cancha_id, fecha, hora_inicio, hora_fin, reserva_id = null) {
-        let sql = `
-            SELECT COUNT(*) as conflictos
-            FROM reservas r
-            WHERE r.cancha_id = $1
-            AND r.fecha = $2
-            AND r.estado_id IN (
-                SELECT id FROM estados_reserva
-                WHERE nombre IN ('pendiente', 'confirmada')
-            )
-            AND NOT (r.hora_fin <= $3 OR r.hora_inicio >= $4)
-        `;
-
-        let params = [cancha_id, fecha, hora_inicio, hora_fin];
-
-        // Si es una actualización, excluir la reserva actual
-        if (reserva_id) {
-            sql += ' AND r.id != $5';
-            params.push(reserva_id);
-        }
-
         try {
-            const result = await this.queryOne(sql, params);
-            return parseInt(result.conflictos) === 0;
+            let url = `/reservas?cancha_id=eq.${cancha_id}&fecha=eq.${fecha}`;
+            
+            // Filtrar por estados activos
+            url += `&estado_id=in.(1,2)`; // Asumiendo 1=pendiente, 2=confirmada
+            
+            const response = await this.client.get(url);
+            const reservas = response.data;
+            
+            // Filtrar conflictos en el cliente
+            const conflictos = reservas.filter(r => {
+                if (reserva_id && r.id === reserva_id) return false;
+                
+                // Verificar solapamiento de horarios
+                return !(r.hora_fin <= hora_inicio || r.hora_inicio >= hora_fin);
+            });
+            
+            return conflictos.length === 0;
         } catch (error) {
-            console.error('Error en verificarDisponibilidad:', error);
+            console.error('Error verificando disponibilidad:', error);
             throw error;
         }
     }
 
-    // Obtener configuración del sistema
+    // Obtener configuración
     async getConfiguracion(clave) {
-        const config = await this.queryOne(
-            'SELECT valor, tipo FROM configuraciones WHERE clave = $1',
-            [clave]
-        );
-
-        if (!config) return null;
-
-        // Convertir según el tipo
-        switch (config.tipo) {
-            case 'number':
-                return parseFloat(config.valor);
-            case 'boolean':
-                return config.valor === 'true';
-            case 'json':
-                return JSON.parse(config.valor);
-            default:
-                return config.valor;
+        try {
+            const response = await this.client.get(`/configuraciones?clave=eq.${clave}`);
+            const config = response.data[0];
+            
+            if (!config) return null;
+            
+            // Convertir según el tipo
+            switch (config.tipo) {
+                case 'number':
+                    return parseFloat(config.valor);
+                case 'boolean':
+                    return config.valor === 'true';
+                case 'json':
+                    return JSON.parse(config.valor);
+                default:
+                    return config.valor;
+            }
+        } catch (error) {
+            return null;
         }
     }
 
     // Actualizar configuración
     async setConfiguracion(clave, valor, tipo = 'string') {
-        const valorString = typeof valor === 'object' ?
-            JSON.stringify(valor) :
+        const valorString = typeof valor === 'object' ? 
+            JSON.stringify(valor) : 
             valor.toString();
 
-        await this.pool.query(`
-            INSERT INTO configuraciones (clave, valor, tipo, updated_at)
-            VALUES ($1, $2, $3, CURRENT_TIMESTAMP)
-            ON CONFLICT (clave)
-            DO UPDATE SET
-                valor = EXCLUDED.valor,
-                tipo = EXCLUDED.tipo,
-                updated_at = CURRENT_TIMESTAMP
-        `, [clave, valorString, tipo]);
-    }
-
-    // Obtener estadísticas del sistema
-    async getEstadisticas() {
-        const stats = {};
-
-        // Total de reservas por estado
-        const reservasPorEstado = await this.query(`
-            SELECT er.nombre::text, COUNT(*) as cantidad
-            FROM reservas r
-            JOIN estados_reserva er ON r.estado_id = er.id
-            GROUP BY er.nombre
-        `);
-        stats.reservasPorEstado = reservasPorEstado;
-
-        // Ingresos del mes actual
-        const ingresosMes = await this.queryOne(`
-            SELECT
-                COALESCE(SUM(precio_total), 0) as ingresos_mes,
-                COUNT(*) as reservas_mes
-            FROM reservas
-            WHERE EXTRACT(YEAR FROM fecha) = EXTRACT(YEAR FROM CURRENT_DATE)
-            AND EXTRACT(MONTH FROM fecha) = EXTRACT(MONTH FROM CURRENT_DATE)
-            AND estado_id IN (
-                SELECT id FROM estados_reserva
-                WHERE nombre IN ('confirmada', 'completada')
-            )
-        `);
-        stats.ingresosMes = ingresosMes;
-
-        // Cancha más popular
-        const canchaPopular = await this.queryOne(`
-            SELECT
-                c.nombre,
-                COUNT(*) as total_reservas
-            FROM reservas r
-            JOIN canchas c ON r.cancha_id = c.id
-            WHERE r.estado_id IN (
-                SELECT id FROM estados_reserva
-                WHERE nombre IN ('confirmada', 'completada')
-            )
-            GROUP BY c.id, c.nombre
-            ORDER BY total_reservas DESC
-            LIMIT 1
-        `);
-        stats.canchaPopular = canchaPopular;
-
-        return stats;
-    }
-
-    // Cerrar conexión
-    async close() {
-        if (this.pool) {
-            await this.pool.end();
-            console.log('✅ Pool de conexiones Supabase cerrado');
+        try {
+            // Intentar actualizar
+            const response = await this.client.patch(
+                `/configuraciones?clave=eq.${clave}`,
+                { valor: valorString, tipo, updated_at: new Date().toISOString() }
+            );
+            
+            if (response.data.length === 0) {
+                // Si no existe, crear
+                await this.client.post('/configuraciones', {
+                    clave,
+                    valor: valorString,
+                    tipo,
+                    created_at: new Date().toISOString(),
+                    updated_at: new Date().toISOString()
+                });
+            }
+        } catch (error) {
+            console.error('Error guardando configuración:', error);
+            throw error;
         }
+    }
+
+    // Compatibilidad con código existente - Intenta parsear SQL básico
+    async all(sql, params = []) {
+        // Intentar extraer tabla del SQL
+        const tableMatch = sql.match(/FROM\s+(\w+)/i);
+        if (tableMatch) {
+            const table = tableMatch[1];
+            const response = await this.client.get(`/${table}`);
+            return response.data;
+        }
+        throw new Error('SQL directo no soportado. Usa métodos específicos de tabla.');
+    }
+
+    async get(sql, params = []) {
+        // Intentar extraer tabla y condiciones del SQL
+        const tableMatch = sql.match(/FROM\s+(\w+)/i);
+        const whereMatch = sql.match(/WHERE\s+(\w+)\s*=\s*\$1/i);
+        
+        if (tableMatch && whereMatch && params.length > 0) {
+            const table = tableMatch[1];
+            const column = whereMatch[1];
+            const value = params[0];
+            const response = await this.client.get(`/${table}?${column}=eq.${value}`);
+            return response.data[0] || null;
+        }
+        throw new Error('SQL directo no soportado. Usa métodos específicos de tabla.');
+    }
+
+    async run(sql, params = []) {
+        // Detectar INSERT, UPDATE o DELETE
+        if (sql.match(/INSERT\s+INTO\s+(\w+)/i)) {
+            const tableMatch = sql.match(/INSERT\s+INTO\s+(\w+)/i);
+            if (tableMatch) {
+                const table = tableMatch[1];
+                // Necesitarías parsear los valores, esto es solo un placeholder
+                throw new Error('Usa métodos específicos como createCliente(), createReserva()');
+            }
+        }
+        throw new Error('SQL directo no soportado. Usa métodos específicos de tabla.');
+    }
+
+    async close() {
+        console.log('✅ Cliente REST cerrado');
     }
 }
 
-// Singleton de la base de datos
+// Singleton
 const supabaseDbInstance = new SupabaseDatabase();
 
 module.exports = supabaseDbInstance;

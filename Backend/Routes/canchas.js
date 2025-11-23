@@ -1,61 +1,32 @@
-// src/routes/canchas.js - Rutas para el manejo de canchas
+// Routes/canchas.js - Rutas para gestión de canchas
 const express = require('express');
 const router = express.Router();
-const { body, param, query, validationResult } = require('express-validator');
 const db = require('../config');
-
-// Middleware para validar errores
-const handleValidationErrors = (req, res, next) => {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-        return res.status(400).json({
-            success: false,
-            message: 'Errores de validación',
-            errors: errors.array()
-        });
-    }
-    next();
-};
 
 // GET /api/canchas - Obtener todas las canchas
 router.get('/', async (req, res) => {
     try {
-        const canchas = await db.all(`
-            SELECT 
-                id,
-                nombre,
-                capacidad,
-                precio_por_hora,
-                descripcion,
-                estado,
-                created_at
-            FROM canchas 
-            ORDER BY id ASC
-        `);
+        const canchas = await db.getCanchas();
         
         res.json({
             success: true,
-            data: canchas,
-            total: canchas.length
+            data: canchas
         });
-        
     } catch (error) {
         console.error('Error obteniendo canchas:', error);
         res.status(500).json({
             success: false,
-            message: 'Error interno del servidor'
+            message: 'Error al obtener las canchas',
+            error: error.message
         });
     }
 });
 
-// GET /api/canchas/:id - Obtener una cancha específica
-router.get('/:id', [
-    param('id').isInt({ min: 1 }).withMessage('ID debe ser un número positivo'),
-    handleValidationErrors
-], async (req, res) => {
+// GET /api/canchas/:id - Obtener una cancha por ID
+router.get('/:id', async (req, res) => {
     try {
         const { id } = req.params;
-        const cancha = await db.get('SELECT * FROM canchas WHERE id = ?', [id]);
+        const cancha = await db.getCanchaById(parseInt(id));
         
         if (!cancha) {
             return res.status(404).json({
@@ -64,272 +35,145 @@ router.get('/:id', [
             });
         }
         
-        // Obtener estadísticas de la cancha
-        const estadisticas = await db.get(`
-            SELECT 
-                COUNT(*) as total_reservas,
-                SUM(CASE WHEN estado_id = 4 THEN 1 ELSE 0 END) as reservas_completadas,
-                AVG(precio_total) as ingreso_promedio,
-                SUM(precio_total) as ingresos_totales
-            FROM reservas 
-            WHERE cancha_id = ?
-        `, [id]);
-        
         res.json({
             success: true,
-            data: {
-                ...cancha,
-                estadisticas: estadisticas
-            }
+            data: cancha
         });
-        
     } catch (error) {
         console.error('Error obteniendo cancha:', error);
         res.status(500).json({
             success: false,
-            message: 'Error interno del servidor'
+            message: 'Error al obtener la cancha',
+            error: error.message
         });
     }
 });
 
 // POST /api/canchas - Crear nueva cancha
-router.post('/', [
-    body('nombre').notEmpty().isLength({ min: 3, max: 100 })
-        .withMessage('Nombre es requerido y debe tener entre 3 y 100 caracteres'),
-    body('capacidad').isInt({ min: 1, max: 50 }).withMessage('Capacidad debe ser entre 1 y 50'),
-    body('precio_por_hora').isFloat({ min: 0 }).withMessage('Precio por hora debe ser un número positivo'),
-    body('descripcion').optional().isString().isLength({ max: 500 })
-        .withMessage('Descripción no puede exceder 500 caracteres'),
-    handleValidationErrors
-], async (req, res) => {
+router.post('/', async (req, res) => {
     try {
-        const { nombre, capacidad, precio_por_hora, descripcion = '' } = req.body;
-        // Verificar si ya existe una cancha con ese nombre
-        const nombreExistente = await db.get('SELECT id FROM canchas WHERE nombre = ?', [nombre]);
+        const { nombre, capacidad, precio_por_hora, descripcion, estado } = req.body;
         
-        if (nombreExistente) {
+        // Validaciones
+        if (!nombre || !capacidad || !precio_por_hora) {
             return res.status(400).json({
                 success: false,
-                message: 'Ya existe una cancha con ese nombre'
+                message: 'Faltan campos requeridos: nombre, capacidad, precio_por_hora'
             });
         }
         
-        const resultado = await db.run(`
-            INSERT INTO canchas (nombre, capacidad, precio_por_hora, descripcion)
-            VALUES (?, ?, ?, ?)
-        `, [nombre, capacidad, precio_por_hora, descripcion]);
-        
-        const canchaCreada = await db.get('SELECT * FROM canchas WHERE id = ?', [resultado.id]);
+        const nuevaCancha = await db.client.post('/canchas', {
+            nombre,
+            capacidad: parseInt(capacidad),
+            precio_por_hora: parseFloat(precio_por_hora),
+            descripcion: descripcion || '',
+            estado: estado || 'disponible',
+            created_at: new Date().toISOString()
+        });
         
         res.status(201).json({
             success: true,
             message: 'Cancha creada exitosamente',
-            data: canchaCreada
+            data: nuevaCancha.data[0]
         });
-        
     } catch (error) {
         console.error('Error creando cancha:', error);
         res.status(500).json({
             success: false,
-            message: 'Error interno del servidor'
+            message: 'Error al crear la cancha',
+            error: error.message
         });
     }
 });
 
 // PUT /api/canchas/:id - Actualizar cancha
-router.put('/:id', [
-    param('id').isInt({ min: 1 }).withMessage('ID debe ser un número positivo'),
-    body('nombre').optional().isLength({ min: 3, max: 100 })
-        .withMessage('Nombre debe tener entre 3 y 100 caracteres'),
-    body('capacidad').optional().isInt({ min: 1, max: 50 }).withMessage('Capacidad debe ser entre 1 y 50'),
-    body('precio_por_hora').optional().isFloat({ min: 0 }).withMessage('Precio por hora debe ser positivo'),
-    body('descripcion').optional().isString().isLength({ max: 500 })
-        .withMessage('Descripción no puede exceder 500 caracteres'),
-    body('estado').optional().isIn(['disponible', 'reservada', 'mantenimiento', 'fuera_servicio'])
-        .withMessage('Estado inválido'),
-    handleValidationErrors
-], async (req, res) => {
+router.put('/:id', async (req, res) => {
     try {
         const { id } = req.params;
         const { nombre, capacidad, precio_por_hora, descripcion, estado } = req.body;
-        const cancha = await db.get('SELECT * FROM canchas WHERE id = ?', [id]);
         
-        if (!cancha) {
+        const updateData = {};
+        if (nombre !== undefined) updateData.nombre = nombre;
+        if (capacidad !== undefined) updateData.capacidad = parseInt(capacidad);
+        if (precio_por_hora !== undefined) updateData.precio_por_hora = parseFloat(precio_por_hora);
+        if (descripcion !== undefined) updateData.descripcion = descripcion;
+        if (estado !== undefined) updateData.estado = estado;
+        
+        const response = await db.client.patch(`/canchas?id=eq.${id}`, updateData);
+        
+        if (response.data.length === 0) {
             return res.status(404).json({
                 success: false,
                 message: 'Cancha no encontrada'
             });
         }
-        
-        // Verificar conflicto de nombre (si se está cambiando)
-        if (nombre && nombre !== cancha.nombre) {
-            const nombreExistente = await db.get(
-                'SELECT id FROM canchas WHERE nombre = ? AND id != ?',
-                [nombre, id]
-            );
-            
-            if (nombreExistente) {
-                return res.status(400).json({
-                    success: false,
-                    message: 'Ya existe una cancha con ese nombre'
-                });
-            }
-        }
-        
-        await db.run(`
-            UPDATE canchas 
-            SET nombre = ?, capacidad = ?, precio_por_hora = ?, descripcion = ?, estado = ?, updated_at = NOW()
-            WHERE id = ?
-        `, [
-            nombre || cancha.nombre,
-            capacidad || cancha.capacidad,
-            precio_por_hora || cancha.precio_por_hora,
-            descripcion !== undefined ? descripcion : cancha.descripcion,
-            estado || cancha.estado,
-            id
-        ]);
-        
-        const canchaActualizada = await db.get('SELECT * FROM canchas WHERE id = ?', [id]);
         
         res.json({
             success: true,
             message: 'Cancha actualizada exitosamente',
-            data: canchaActualizada
+            data: response.data[0]
         });
-        
     } catch (error) {
         console.error('Error actualizando cancha:', error);
         res.status(500).json({
             success: false,
-            message: 'Error interno del servidor'
+            message: 'Error al actualizar la cancha',
+            error: error.message
         });
     }
 });
 
-// PUT /api/canchas/:id/estado - Cambiar estado de la cancha
-router.put('/:id/estado', [
-    param('id').isInt({ min: 1 }).withMessage('ID debe ser un número positivo'),
-    body('estado').isIn(['disponible', 'reservada', 'mantenimiento', 'fuera_servicio'])
-        .withMessage('Estado debe ser: disponible, reservada, mantenimiento o fuera_servicio'),
-    handleValidationErrors
-], async (req, res) => {
+// DELETE /api/canchas/:id - Eliminar cancha
+router.delete('/:id', async (req, res) => {
     try {
         const { id } = req.params;
-        const { estado } = req.body;
-        const cancha = await db.get('SELECT * FROM canchas WHERE id = ?', [id]);
         
-        if (!cancha) {
-            return res.status(404).json({
-                success: false,
-                message: 'Cancha no encontrada'
-            });
-        }
-        
-        await db.run('UPDATE canchas SET estado = ?, updated_at = NOW() WHERE id = ?', [estado, id]);
-        
-        res.json({
-            success: true,
-            message: `Estado de cancha cambiado a: ${estado}`
-        });
-        
-    } catch (error) {
-        console.error('Error cambiando estado de cancha:', error);
-        res.status(500).json({
-            success: false,
-            message: 'Error interno del servidor'
-        });
-    }
-});
-
-// GET /api/canchas/:id/disponibilidad - Ver disponibilidad específica de una cancha
-router.get('/:id/disponibilidad', [
-    param('id').isInt({ min: 1 }).withMessage('ID debe ser un número positivo'),
-    query('fecha').notEmpty().isISO8601().withMessage('Fecha es requerida (formato YYYY-MM-DD)'),
-    handleValidationErrors
-], async (req, res) => {
-    try {
-        const { id } = req.params;
-        const { fecha } = req.query;
-        const cancha = await db.get('SELECT * FROM canchas WHERE id = ?', [id]);
-        
-        if (!cancha) {
-            return res.status(404).json({
-                success: false,
-                message: 'Cancha no encontrada'
-            });
-        }
-        
-        // Obtener reservas del día
-        const reservas = await db.all(`
-            SELECT hora_inicio, hora_fin, 
-                   CONCAT(c.nombre, ' ', c.apellido) as cliente
-            FROM reservas r
-            JOIN clientes c ON r.cliente_id = c.id
-            WHERE r.cancha_id = ? AND r.fecha = ? AND r.estado_id IN (1, 2)
-            ORDER BY r.hora_inicio ASC
-        `, [id, fecha]);
-        
-        res.json({
-            success: true,
-            data: {
-                cancha: cancha,
-                fecha: fecha,
-                reservas: reservas,
-                total_reservas: reservas.length
-            }
-        });
-        
-    } catch (error) {
-        console.error('Error obteniendo disponibilidad de cancha:', error);
-        res.status(500).json({
-            success: false,
-            message: 'Error interno del servidor'
-        });
-    }
-});
-
-// DELETE /api/canchas/:id - Eliminar cancha (solo admin)
-router.delete('/:id', [
-    param('id').isInt({ min: 1 }).withMessage('ID debe ser un número positivo'),
-    handleValidationErrors
-], async (req, res) => {
-    try {
-        const { id } = req.params;
-        const cancha = await db.get('SELECT * FROM canchas WHERE id = ?', [id]);
-        
-        if (!cancha) {
-            return res.status(404).json({
-                success: false,
-                message: 'Cancha no encontrada'
-            });
-        }
-        
-        // Verificar si tiene reservas futuras
-        const reservasFuturas = await db.get(`
-            SELECT COUNT(*) as cantidad
-            FROM reservas 
-            WHERE cancha_id = ? AND fecha >= CURDATE() AND estado_id IN (1, 2)
-        `, [id]);
-        
-        if (reservasFuturas.cantidad > 0) {
-            return res.status(400).json({
-                success: false,
-                message: 'No se puede eliminar la cancha: tiene reservas futuras activas'
-            });
-        }
-        
-        await db.run('DELETE FROM canchas WHERE id = ?', [id]);
+        await db.client.delete(`/canchas?id=eq.${id}`);
         
         res.json({
             success: true,
             message: 'Cancha eliminada exitosamente'
         });
-        
     } catch (error) {
         console.error('Error eliminando cancha:', error);
         res.status(500).json({
             success: false,
-            message: 'Error interno del servidor'
+            message: 'Error al eliminar la cancha',
+            error: error.message
+        });
+    }
+});
+
+// GET /api/canchas/:id/disponibilidad - Verificar disponibilidad
+router.get('/:id/disponibilidad', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { fecha, hora_inicio, hora_fin } = req.query;
+        
+        if (!fecha || !hora_inicio || !hora_fin) {
+            return res.status(400).json({
+                success: false,
+                message: 'Faltan parámetros: fecha, hora_inicio, hora_fin'
+            });
+        }
+        
+        const disponible = await db.verificarDisponibilidad(
+            parseInt(id),
+            fecha,
+            hora_inicio,
+            hora_fin
+        );
+        
+        res.json({
+            success: true,
+            disponible
+        });
+    } catch (error) {
+        console.error('Error verificando disponibilidad:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error al verificar disponibilidad',
+            error: error.message
         });
     }
 });
