@@ -4,8 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Reserva de Canchas de Fútbol</title>
-    <link rel="stylesheet" href="css/style.css">
-    <link rel="stylesheet" href="css/components.css">
+    <link rel="stylesheet" href="CSS/style.css">
+    <link rel="stylesheet" href="CSS/components.css">
 </head>
 <body>
 <!-- Header para index.html -->
@@ -56,10 +56,10 @@ function irAReservar(e) {
     
     if (sesion) {
         // Si hay sesión, ir directo a reservar
-        window.location.href = 'pages/reservar.html';
+        window.location.href = 'Pages/reservar.html';
     } else {
         // Si no hay sesión, ir al login
-        window.location.href = 'pages/login.html';
+        window.location.href = 'Pages/login.html';
     }
 }
 
@@ -68,23 +68,23 @@ function irAAdmin(e) {
     
     const sesionStr = sessionStorage.getItem('sesion');
     
-    if (sesionStr) {
+        if (sesionStr) {
         const sesion = JSON.parse(sesionStr);
         
         // Si ya es admin, ir directo al panel
         if (sesion.rol === 'admin') {
-            window.location.href = 'pages/admin.html';
+            window.location.href = 'Pages/admin.html';
             return;
         }
         
         // Si es cliente, preguntar si quiere cerrar sesión para entrar como admin
         if (confirm('Para acceder al Panel Admin debes cerrar tu sesión actual. ¿Continuar?')) {
             sessionStorage.removeItem('sesion');
-            window.location.href = 'pages/login.html?admin=true';
+            window.location.href = 'Pages/login.html?admin=true';
         }
     } else {
         // Si no hay sesión, ir al login
-        window.location.href = 'pages/login.html?admin=true';
+        window.location.href = 'Pages/login.html?admin=true';
     }
 }
 
@@ -131,7 +131,7 @@ function cerrarSesionGlobal() {
         <div class="hero-content">
             <h2 class="hero-title">Reservá tu Cancha de Fútbol</h2>
             <p class="hero-subtitle">Sistema rápido, fácil y confiable para reservar canchas</p>
-            <a href="pages/login.html" class="btn btn-primary btn-large">
+            <a href="Pages/login.html" class="btn btn-primary btn-large">
                 Hacer una Reserva
             </a>
         </div>
@@ -243,9 +243,9 @@ function cerrarSesionGlobal() {
     </footer>
 
     <!-- Scripts -->
-    <script src="js/config.js"></script>
-    <script src="js/api.js"></script>
-    <script src="js/utils.js"></script>
+    <script src="JS/config.js"></script>
+    <script src="JS/api.js"></script>
+    <script src="JS/utils.js"></script>
     <script>
         // Cargar canchas disponibles al iniciar la página
         document.addEventListener('DOMContentLoaded', async () => {
@@ -294,7 +294,7 @@ function cerrarSesionGlobal() {
                     <p class="cancha-descripcion">${cancha.descripcion || 'Cancha de excelente calidad'}</p>
                 </div>
                 <div class="cancha-footer">
-                    <a href="pages/login.html?cancha=${cancha.id}" class="btn btn-primary btn-block">
+                    <a href="Pages/login.html?cancha=${cancha.id}" class="btn btn-primary btn-block">
                         Reservar Ahora
                     </a>
                 </div>

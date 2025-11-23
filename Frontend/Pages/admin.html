@@ -4,9 +4,19 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Panel de Administración - FutbolReservas</title>
-    <link rel="stylesheet" href="../css/style.css">
-    <link rel="stylesheet" href="../css/components.css">
-    <link rel="stylesheet" href="../css/admin.css">
+    <link rel="stylesheet" href="../CSS/style.css">
+    <link rel="stylesheet" href="../CSS/components.css">
+    <link rel="stylesheet" href="../CSS/admin.css">
+    <style>
+        .quick-access-card:hover > div {
+            transform: translateY(-4px);
+            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.15);
+        }
+        .admin-nav-btn {
+            display: block;
+            width: 100%;
+        }
+    </style>
 </head>
 <body>
     <header class="header">
@@ -41,6 +51,9 @@
                 <button class="admin-nav-btn" data-section="canchas">
                     🏟️ Canchas
                 </button>
+                <a href="diasBloqueados.html" class="admin-nav-btn" style="text-decoration: none;">
+                    🚫 Días Bloqueados
+                </a>
             </nav>
         </aside>
 
@@ -76,6 +89,37 @@
                         <div class="stat-info">
                             <h3 id="statOcupacion">-</h3>
                             <p>Ocupación Hoy</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card mt-4">
+                    <div class="card-header">
+                        <h3>Accesos Rápidos</h3>
+                    </div>
+                    <div class="card-body">
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem;">
+                            <a href="diasBloqueados.html" class="quick-access-card" style="text-decoration: none; color: inherit;">
+                                <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 1.5rem; border-radius: 8px; text-align: center; color: white; transition: transform 0.2s;">
+                                    <div style="font-size: 2rem; margin-bottom: 0.5rem;">🚫</div>
+                                    <h4 style="margin: 0; font-size: 1rem;">Días Bloqueados</h4>
+                                    <p style="margin: 0.5rem 0 0 0; font-size: 0.875rem; opacity: 0.9;">Gestionar feriados y mantenimiento</p>
+                                </div>
+                            </a>
+                            <a href="reservar.html" class="quick-access-card" style="text-decoration: none; color: inherit;">
+                                <div style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); padding: 1.5rem; border-radius: 8px; text-align: center; color: white; transition: transform 0.2s;">
+                                    <div style="font-size: 2rem; margin-bottom: 0.5rem;">➕</div>
+                                    <h4 style="margin: 0; font-size: 1rem;">Nueva Reserva</h4>
+                                    <p style="margin: 0.5rem 0 0 0; font-size: 0.875rem; opacity: 0.9;">Crear reserva rápida</p>
+                                </div>
+                            </a>
+                            <div class="quick-access-card" onclick="document.querySelector('[data-section=clientes]').click()" style="cursor: pointer;">
+                                <div style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); padding: 1.5rem; border-radius: 8px; text-align: center; color: white; transition: transform 0.2s;">
+                                    <div style="font-size: 2rem; margin-bottom: 0.5rem;">👥</div>
+                                    <h4 style="margin: 0; font-size: 1rem;">Ver Clientes</h4>
+                                    <p style="margin: 0.5rem 0 0 0; font-size: 0.875rem; opacity: 0.9;">Gestionar clientes</p>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -170,10 +214,10 @@
         </main>
     </div>
 
-    <script src="../js/config.js"></script>
-    <script src="../js/api.js"></script>
-    <script src="../js/utils.js"></script>
-    <script src="../js/auth.js"></script>
+    <script src="../JS/config.js"></script>
+    <script src="../JS/api.js"></script>
+    <script src="../JS/utils.js"></script>
+    <script src="../JS/auth.js"></script>
     <script>
         // Verificar que sea admin antes de cargar la página
         const sesion = sessionStorage.getItem('sesion');
@@ -188,6 +232,6 @@
             }
         }
     </script>
-    <script src="../js/admin.js"></script>
+    <script src="../JS/admin.js"></script>
 </body>
 </html>

@@ -220,9 +220,9 @@ function redirigirSegunRol() {
     if (!sesionActual) return;
     
     if (sesionActual.rol === 'admin') {
-        window.location.href = '../pages/admin.html';
+        window.location.href = '../Pages/admin.html';
     } else {
-        window.location.href = '../pages/reservar.html';
+        window.location.href = '../Pages/reservar.html';
     }
 }
 
@@ -248,7 +248,7 @@ function mostrarCargando(mostrar) {
 function cerrarSesion() {
     eliminarSesion();
     sesionActual = null;
-    window.location.href = '../pages/login.html';
+    window.location.href = '../Pages/login.html';
 }
 
 // Verificar si el usuario está autenticado (para proteger páginas)
@@ -261,7 +261,7 @@ function verificarAutenticacion(rolRequerido = null) {
     
     if (!sesion) {
         console.log('NO HAY SESIÓN - Redirigiendo a login');
-        window.location.href = '../pages/login.html';
+        window.location.href = '../Pages/login.html';
         return false;
     }
     
