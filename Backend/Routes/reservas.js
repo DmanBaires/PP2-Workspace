@@ -36,6 +36,76 @@ router.get('/', async (req, res) => {
     }
 });
 
+
+// ✅ GET /api/reservas/disponibilidad - Obtener disponibilidad de canchas (DEBE IR ANTES DE /:id)
+router.get('/disponibilidad', async (req, res) => {
+    try {
+        const { fecha, cancha_id } = req.query;
+
+        if (!fecha) {
+            return res.status(400).json({
+                success: false,
+                message: 'La fecha es requerida'
+            });
+        }
+
+        // Verificar si el día está bloqueado
+        const urlDiasBloqueados = `/dias_bloqueados?fecha=eq.${fecha}`;
+        const diasBloqueadosResponse = await db.client.get(urlDiasBloqueados);
+
+        if (diasBloqueadosResponse.data.length > 0) {
+            const bloqueo = diasBloqueadosResponse.data[0];
+            return res.json({
+                success: true,
+                bloqueado: true,
+                mensaje: bloqueo.motivo || bloqueo.descripcion || 'Día no laborable',
+                data: [],
+                fecha: fecha
+            });
+        }
+
+        // Obtener todas las canchas o una específica
+        let urlCanchas = '/canchas?estado=eq.disponible';
+        if (cancha_id) {
+            urlCanchas += `&id=eq.${cancha_id}`;
+        }
+
+        const canchasResponse = await db.client.get(urlCanchas);
+        const canchas = canchasResponse.data;
+
+        // Para cada cancha, obtener sus reservas en la fecha indicada
+        const disponibilidad = await Promise.all(canchas.map(async (cancha) => {
+            const urlReservas = `/reservas?cancha_id=eq.${cancha.id}&fecha=eq.${fecha}&estado_id=in.(1,2)`;
+            const reservasResponse = await db.client.get(urlReservas);
+
+            return {
+                id: cancha.id,
+                nombre: cancha.nombre,
+                precio_por_hora: cancha.precio_por_hora,
+                reservas: reservasResponse.data.map(r => ({
+                    hora_inicio: r.hora_inicio,
+                    hora_fin: r.hora_fin
+                }))
+            };
+        }));
+
+        res.json({
+            success: true,
+            bloqueado: false,
+            data: disponibilidad,
+            fecha: fecha
+        });
+    } catch (error) {
+        console.error('Error obteniendo disponibilidad:', error.message);
+        console.error('Stack:', error.stack);
+        res.status(500).json({
+            success: false,
+            message: 'Error al obtener disponibilidad',
+            error: error.message
+        });
+    }
+});
+
 // ✅ GET /api/reservas/:id - Obtener una reserva por ID (corregido)
 router.get('/:id', async (req, res) => {
     try {
@@ -107,16 +177,9 @@ router.post('/', async (req, res) => {
             });
         }
 
-        const headers = {
-            apikey: SUPABASE_API_KEY,
-            Authorization: `Bearer ${SUPABASE_API_KEY}`,
-            Prefer: 'return=representation',
-            'Content-Type': 'application/json'
-        };
-
         // ✅ Paso 1: Verificar reservas existentes para la misma cancha y fecha
-        const urlReservas = `${SUPABASE_URL}/reservas?cancha_id=eq.${cancha_id}&fecha=eq.${fecha}`;
-        const reservasExistentes = await axios.get(urlReservas, { headers });
+        const urlReservas = `/reservas?cancha_id=eq.${cancha_id}&fecha=eq.${fecha}`;
+        const reservasExistentes = await db.client.get(urlReservas);
 
         const conflictoReserva = reservasExistentes.data.some(r =>
             (hora_inicio < r.hora_fin && hora_fin > r.hora_inicio)
@@ -129,8 +192,8 @@ router.post('/', async (req, res) => {
         }
 
         // ✅ Paso 2: Verificar bloqueos horarios
-        const urlBloqueos = `${SUPABASE_URL}/bloqueos_horarios?cancha_id=eq.${cancha_id}&fecha_inicio=lte.${fecha}&fecha_fin=gte.${fecha}`;
-        const bloqueos = await axios.get(urlBloqueos, { headers });
+        const urlBloqueos = `/bloqueos_horarios?cancha_id=eq.${cancha_id}&fecha_inicio=lte.${fecha}&fecha_fin=gte.${fecha}`;
+        const bloqueos = await db.client.get(urlBloqueos);
 
         const conflictoBloqueo = bloqueos.data.some(b =>
             (hora_inicio < b.hora_fin && hora_fin > b.hora_inicio)
@@ -143,8 +206,8 @@ router.post('/', async (req, res) => {
         }
 
         // ✅ Paso 3: Verificar días bloqueados
-        const urlDiasBloqueados = `${SUPABASE_URL}/dias_bloqueados?fecha=eq.${fecha}`;
-        const diasBloqueados = await axios.get(urlDiasBloqueados, { headers });
+        const urlDiasBloqueados = `/dias_bloqueados?fecha=eq.${fecha}`;
+        const diasBloqueados = await db.client.get(urlDiasBloqueados);
 
         if (diasBloqueados.data.length > 0) {
             return res.status(409).json({
@@ -165,7 +228,7 @@ router.post('/', async (req, res) => {
             observaciones: observaciones || ''
         };
 
-        const response = await axios.post(`${SUPABASE_URL}/reservas`, nuevaReserva, { headers });
+        const response = await db.client.post('/reservas', nuevaReserva);
 
         res.status(201).json({
             success: true,

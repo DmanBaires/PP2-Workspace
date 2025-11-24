@@ -1,0 +1,19 @@
+--- a/Frontend/JS/reservas.js
++++ b/Frontend/JS/reservas.js
+@@ -189,7 +189,16 @@ async function verificarDisponibilidad() {
+     const fecha = document.getElementById('fecha').value;
+     const canchaId = document.getElementById('cancha').value;
+     
+-    if (!fecha || !canchaId) return;
++    // Solo verificar si ambos campos tienen valores válidos
++    if (!fecha || !canchaId || canchaId === '') {
++        // Ocultar disponibilidad si no hay selección completa
++        const disponibilidadContainer = document.getElementById('disponibilidadContainer');
++        const seleccionHorario = document.getElementById('seleccionHorario');
++        if (disponibilidadContainer) disponibilidadContainer.classList.add('d-none');
++        if (seleccionHorario) seleccionHorario.classList.add('d-none');
++        return;
++    }
+     
+     try {
+         const response = await ReservasAPI.verificarDisponibilidad(fecha, canchaId);

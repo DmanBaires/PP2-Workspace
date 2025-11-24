@@ -7,19 +7,19 @@ let disponibilidadActual = null;
 // Inicializar cuando carga la página
 document.addEventListener('DOMContentLoaded', () => {
     console.log('=== INICIANDO PÁGINA DE RESERVAS ===');
-    
+
     // Verificar autenticación primero
     if (!verificarAutenticacion()) {
         console.log('Autenticación fallida, deteniendo carga');
         return;
     }
-    
+
     console.log('Autenticación exitosa, continuando...');
-    
+
     // Obtener datos del usuario logueado
     const sesion = obtenerSesionActual();
     console.log('Sesión recuperada:', sesion);
-    
+
     if (sesion && sesion.cliente_id) {
         // Pre-cargar datos del cliente
         clienteActual = {
@@ -31,7 +31,7 @@ document.addEventListener('DOMContentLoaded', () => {
         };
         console.log('Cliente actual configurado:', clienteActual);
     }
-    
+
     inicializarFormulario();
     cargarCanchas();
     configurarFechaMinima();
@@ -51,7 +51,7 @@ async function cargarCanchas() {
     try {
         const response = await CanchasAPI.obtenerTodas();
         const selectCancha = document.getElementById('cancha');
-        
+
         if (response.success && response.data.length > 0) {
             response.data.forEach(cancha => {
                 if (cancha.estado === 'disponible') {
@@ -72,7 +72,7 @@ async function cargarCanchas() {
 // Inicializar eventos del formulario
 function inicializarFormulario() {
     console.log('=== INICIALIZANDO FORMULARIO ===');
-    
+
     // Verificar que los elementos existan antes de agregar listeners
     const btnBuscarCliente = document.getElementById('btnBuscarCliente');
     const btnSiguiente1 = document.getElementById('btnSiguiente1');
@@ -82,12 +82,12 @@ function inicializarFormulario() {
     const fecha = document.getElementById('fecha');
     const cancha = document.getElementById('cancha');
     const formReserva = document.getElementById('formReserva');
-    
+
     // Botón buscar cliente (solo si existe)
     if (btnBuscarCliente) {
         btnBuscarCliente.addEventListener('click', buscarCliente);
     }
-    
+
     // Navegación entre pasos
     if (btnSiguiente1) {
         btnSiguiente1.addEventListener('click', () => {
@@ -97,31 +97,31 @@ function inicializarFormulario() {
     } else {
         console.error('ERROR: btnSiguiente1 no encontrado');
     }
-    
+
     if (btnSiguiente2) {
         btnSiguiente2.addEventListener('click', () => {
             console.log('Click en btnSiguiente2');
             cambiarPaso(3);
         });
     }
-    
+
     if (btnVolver1) {
         btnVolver1.addEventListener('click', () => cambiarPaso(1));
     }
-    
+
     if (btnVolver2) {
         btnVolver2.addEventListener('click', () => cambiarPaso(2));
     }
-    
+
     // Cambios en fecha y cancha
     if (fecha) {
         fecha.addEventListener('change', verificarDisponibilidad);
     }
-    
+
     if (cancha) {
         cancha.addEventListener('change', verificarDisponibilidad);
     }
-    
+
     // Submit del formulario
     if (formReserva) {
         formReserva.addEventListener('submit', crearReserva);
@@ -129,39 +129,39 @@ function inicializarFormulario() {
 
     // Pre-cargar datos del cliente si ya está logueado
     precargarDatosCliente();
-    
+
     console.log('Formulario inicializado correctamente');
 }
 
 // Buscar cliente por teléfono
 async function buscarCliente() {
     const telefono = document.getElementById('telefono').value.trim();
-    
+
     if (!telefono) {
         UIUtils.mostrarError('Por favor ingresa un número de teléfono');
         return;
     }
-    
+
     if (!Validacion.telefono(telefono)) {
         UIUtils.mostrarError('El número de teléfono no es válido');
         return;
     }
-    
+
     try {
         const response = await ClientesAPI.buscarPorTelefono(telefono);
-        
+
         if (response.success) {
             // Cliente encontrado
             clienteActual = response.data;
             document.getElementById('nombre').value = clienteActual.nombre;
             document.getElementById('apellido').value = clienteActual.apellido;
             document.getElementById('email').value = clienteActual.email || '';
-            
+
             // Deshabilitar campos (cliente ya existe)
             document.getElementById('nombre').disabled = true;
             document.getElementById('apellido').disabled = true;
             document.getElementById('email').disabled = true;
-            
+
             UIUtils.mostrarExito('Cliente encontrado');
         }
     } catch (error) {
@@ -173,10 +173,10 @@ async function buscarCliente() {
         document.getElementById('nombre').disabled = false;
         document.getElementById('apellido').disabled = false;
         document.getElementById('email').disabled = false;
-        
+
         UIUtils.mostrarError('Cliente no encontrado. Complete los datos para crear uno nuevo.');
     }
-    
+
     // Mostrar campos de datos del cliente
     const datosCliente = document.getElementById('datosCliente');
     if (datosCliente) {
@@ -188,15 +188,34 @@ async function buscarCliente() {
 async function verificarDisponibilidad() {
     const fecha = document.getElementById('fecha').value;
     const canchaId = document.getElementById('cancha').value;
-    
-    if (!fecha || !canchaId) return;
-    
+
+    // Solo verificar si ambos campos tienen valores válidos
+    if (!fecha || !canchaId || canchaId === '') {
+        // Ocultar disponibilidad si no hay selección completa
+        const disponibilidadContainer = document.getElementById('disponibilidadContainer');
+        const seleccionHorario = document.getElementById('seleccionHorario');
+        if (disponibilidadContainer) disponibilidadContainer.classList.add('d-none');
+        if (seleccionHorario) seleccionHorario.classList.add('d-none');
+        return;
+    }
+
     try {
         const response = await ReservasAPI.verificarDisponibilidad(fecha, canchaId);
-        
+
         if (response.success) {
-            disponibilidadActual = response.data;
-            mostrarDisponibilidad(disponibilidadActual);
+            if (response.bloqueado) {
+                // Ocultar contenedores de disponibilidad
+                const disponibilidadContainer = document.getElementById('disponibilidadContainer');
+                const seleccionHorario = document.getElementById('seleccionHorario');
+                if (disponibilidadContainer) disponibilidadContainer.classList.add('d-none');
+                if (seleccionHorario) seleccionHorario.classList.add('d-none');
+
+                // Mostrar mensaje de bloqueo
+                UIUtils.mostrarError(`No se pueden realizar reservas para esta fecha: ${response.mensaje}`);
+            } else {
+                disponibilidadActual = response.data;
+                mostrarDisponibilidad(disponibilidadActual);
+            }
         }
     } catch (error) {
         console.error('Error verificando disponibilidad:', error);
@@ -209,37 +228,37 @@ function mostrarDisponibilidad(datos) {
     const container = document.getElementById('horariosDisponibles');
     const disponibilidadContainer = document.getElementById('disponibilidadContainer');
     const seleccionHorario = document.getElementById('seleccionHorario');
-    
+
     if (disponibilidadContainer) {
         disponibilidadContainer.classList.remove('d-none');
     }
     if (seleccionHorario) {
         seleccionHorario.classList.remove('d-none');
     }
-    
+
     const cancha = datos.find(c => c.id == document.getElementById('cancha').value);
     if (!cancha || !container) return;
-    
+
     const horariosOcupados = cancha.reservas || [];
     const todosHorarios = HorarioUtils.generarHorarios('08:00', '23:00', 60);
-    
+
     container.innerHTML = '';
-    
+
     todosHorarios.forEach(hora => {
         const estaOcupado = horariosOcupados.some(reserva => {
             return hora >= reserva.hora_inicio && hora < reserva.hora_fin;
         });
-        
+
         const btn = document.createElement('button');
         btn.type = 'button';
         btn.className = `btn ${estaOcupado ? 'btn-danger' : 'btn-outline'}`;
         btn.textContent = hora;
         btn.disabled = estaOcupado;
-        
+
         if (!estaOcupado) {
             btn.addEventListener('click', () => seleccionarHorario(hora));
         }
-        
+
         container.appendChild(btn);
     });
 }
@@ -247,7 +266,7 @@ function mostrarDisponibilidad(datos) {
 // Seleccionar horario de inicio
 function seleccionarHorario(hora) {
     document.getElementById('horaInicio').value = hora;
-    
+
     // Calcular hora de fin sugerida (1 hora después)
     const horaInicio = HorarioUtils.parseHora(hora);
     const horaFin = new Date(horaInicio.getTime() + 60 * 60 * 1000);
@@ -257,7 +276,7 @@ function seleccionarHorario(hora) {
 // Cambiar entre pasos del formulario
 function cambiarPaso(numeroPaso) {
     console.log('Cambiando a paso:', numeroPaso);
-    
+
     // Validar paso actual antes de avanzar
     if (numeroPaso === 2) {
         if (!validarPaso1()) {
@@ -271,16 +290,16 @@ function cambiarPaso(numeroPaso) {
         }
         mostrarResumen();
     }
-    
+
     // Ocultar todos los pasos
     const paso1 = document.getElementById('paso1');
     const paso2 = document.getElementById('paso2');
     const paso3 = document.getElementById('paso3');
-    
+
     if (paso1) paso1.classList.add('d-none');
     if (paso2) paso2.classList.add('d-none');
     if (paso3) paso3.classList.add('d-none');
-    
+
     // Mostrar paso seleccionado
     const pasoActual = document.getElementById(`paso${numeroPaso}`);
     if (pasoActual) {
@@ -296,19 +315,19 @@ function validarPaso1() {
     const telefono = document.getElementById('telefono').value.trim();
     const nombre = document.getElementById('nombre').value.trim();
     const apellido = document.getElementById('apellido').value.trim();
-    
+
     console.log('Validando paso 1:', { telefono, nombre, apellido });
-    
+
     if (!telefono || !nombre || !apellido) {
         UIUtils.mostrarError('Por favor completa todos los campos requeridos');
         return false;
     }
-    
+
     if (!Validacion.telefono(telefono)) {
         UIUtils.mostrarError('El teléfono no es válido');
         return false;
     }
-    
+
     console.log('Paso 1 válido');
     return true;
 }
@@ -319,25 +338,25 @@ function validarPaso2() {
     const canchaId = document.getElementById('cancha').value;
     const horaInicio = document.getElementById('horaInicio').value;
     const horaFin = document.getElementById('horaFin').value;
-    
+
     console.log('Validando paso 2:', { fecha, canchaId, horaInicio, horaFin });
-    
+
     if (!fecha || !canchaId || !horaInicio || !horaFin) {
         UIUtils.mostrarError('Por favor completa todos los campos de la reserva');
         return false;
     }
-    
+
     const duracion = HorarioUtils.calcularDuracion(horaInicio, horaFin);
     if (duracion <= 0) {
         UIUtils.mostrarError('La hora de fin debe ser posterior a la hora de inicio');
         return false;
     }
-    
+
     if (duracion > 3) {
         UIUtils.mostrarError('La duración máxima de una reserva es 3 horas');
         return false;
     }
-    
+
     console.log('Paso 2 válido');
     return true;
 }
@@ -348,15 +367,15 @@ function mostrarResumen() {
     const canchaId = document.getElementById('cancha').value;
     const horaInicio = document.getElementById('horaInicio').value;
     const horaFin = document.getElementById('horaFin').value;
-    
+
     const selectCancha = document.getElementById('cancha');
     const opcionSeleccionada = selectCancha.options[selectCancha.selectedIndex];
     const nombreCancha = opcionSeleccionada.textContent.split(' - ')[0];
     const precioHora = parseFloat(opcionSeleccionada.dataset.precio);
-    
+
     const duracion = HorarioUtils.calcularDuracion(horaInicio, horaFin);
     const precioTotal = precioHora * duracion;
-    
+
     const resumen = `
         <div class="grid grid-2 gap-2">
             <div>
@@ -394,7 +413,7 @@ function mostrarResumen() {
             </p>
         </div>
     `;
-    
+
     const detallesResumen = document.getElementById('detallesResumen');
     if (detallesResumen) {
         detallesResumen.innerHTML = resumen;
@@ -404,11 +423,11 @@ function mostrarResumen() {
 // Crear reserva
 async function crearReserva(e) {
     e.preventDefault();
-    
+
     const btnConfirmar = document.getElementById('btnConfirmar');
     btnConfirmar.disabled = true;
     btnConfirmar.textContent = 'Procesando...';
-    
+
     try {
         // Si no existe el cliente, crearlo primero
         if (!clienteActual) {
@@ -418,7 +437,12 @@ async function crearReserva(e) {
                 telefono: document.getElementById('telefono').value.trim(),
                 email: document.getElementById('email').value.trim() || null
             };
-            
+
+            if (!nuevoCliente.nombre || !nuevoCliente.apellido || !nuevoCliente.telefono) {
+                UIUtils.mostrarError('Por favor complete todos los campos requeridos del cliente');
+                return;
+            }
+
             const responseCliente = await ClientesAPI.crear(nuevoCliente);
             if (responseCliente.success) {
                 clienteActual = responseCliente.data;
@@ -426,7 +450,17 @@ async function crearReserva(e) {
                 throw new Error('Error al crear el cliente');
             }
         }
-        
+
+        // Calcular precio total
+        const selectCancha = document.getElementById('cancha');
+        const opcionSeleccionada = selectCancha.options[selectCancha.selectedIndex];
+        const precioHora = parseFloat(opcionSeleccionada.dataset.precio);
+        const duracion = HorarioUtils.calcularDuracion(
+            document.getElementById('horaInicio').value,
+            document.getElementById('horaFin').value
+        );
+        const precioTotal = precioHora * duracion;
+
         // Crear la reserva
         const datosReserva = {
             cancha_id: parseInt(document.getElementById('cancha').value),
@@ -434,23 +468,24 @@ async function crearReserva(e) {
             fecha: document.getElementById('fecha').value,
             hora_inicio: document.getElementById('horaInicio').value,
             hora_fin: document.getElementById('horaFin').value,
+            precio_total: precioTotal,
             observaciones: document.getElementById('observaciones').value.trim()
         };
 
         console.log('Datos a enviar:', datosReserva);
-        
+
         const response = await ReservasAPI.crear(datosReserva);
-        
+
         if (response.success) {
             UIUtils.mostrarExito('Reserva creada exitosamente');
-            
+
             setTimeout(() => {
                 window.location.href = '../index.html';
             }, 2000);
         } else {
             throw new Error(response.message);
         }
-        
+
     } catch (error) {
         console.error('Error creando reserva:', error);
         UIUtils.mostrarError(error.message || 'Error al crear la reserva');
@@ -462,37 +497,38 @@ async function crearReserva(e) {
 // Pre-cargar datos del cliente logueado
 function precargarDatosCliente() {
     const sesion = obtenerSesionActual();
-    
+
     console.log('=== PRE-CARGA DE DATOS ===');
     console.log('Sesión actual:', sesion);
-    
+
     if (sesion && sesion.cliente_id) {
         // Llenar automáticamente todos los campos
         const telefonoInput = document.getElementById('telefono');
         const nombreInput = document.getElementById('nombre');
         const apellidoInput = document.getElementById('apellido');
         const emailInput = document.getElementById('email');
-        
+
         if (telefonoInput) telefonoInput.value = sesion.telefono || '';
         if (nombreInput) nombreInput.value = sesion.nombre || '';
         if (apellidoInput) apellidoInput.value = sesion.apellido || '';
         if (emailInput) emailInput.value = sesion.email || '';
-        
+
         // Hacer campos de solo lectura
-        if (telefonoInput) telefonoInput.readOnly = true;
-        if (nombreInput) nombreInput.readOnly = true;
-        if (apellidoInput) apellidoInput.readOnly = true;
-        if (emailInput) emailInput.readOnly = true;
-        
+        // Hacer campos de solo lectura solo si tienen valor
+        if (telefonoInput && sesion.telefono) telefonoInput.readOnly = true;
+        if (nombreInput && sesion.nombre) nombreInput.readOnly = true;
+        if (apellidoInput && sesion.apellido) apellidoInput.readOnly = true;
+        if (emailInput && sesion.email) emailInput.readOnly = true;
+
         // Mostrar mensaje de confirmación
         const alertDiv = document.getElementById('datosClienteAuto');
         const nombreSpan = document.getElementById('nombreCompleto');
-        
+
         if (alertDiv && nombreSpan) {
             nombreSpan.textContent = `${sesion.nombre} ${sesion.apellido}`;
             alertDiv.style.display = 'block';
         }
-        
+
         console.log('✓ Datos pre-cargados exitosamente');
     } else {
         console.warn('⚠ No hay sesión con cliente_id');

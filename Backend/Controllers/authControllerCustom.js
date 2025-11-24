@@ -12,7 +12,7 @@ const JWT_SECRET = process.env.JWT_SECRET || 'tu_clave_secreta_super_segura_camb
 const registro = async (req, res) => {
     try {
         const { nombre, apellido, email, telefono, password } = req.body;
-        
+
         console.log('📝 Intentando registrar:', { nombre, apellido, email, telefono });
 
         // Validar campos requeridos
@@ -45,21 +45,21 @@ const registro = async (req, res) => {
 
         // Crear el cliente (SIN password por ahora - la tabla no tiene esa columna)
         // Crear el cliente (SIN password por ahora - la tabla no tiene esa columna)
-const nuevoCliente = await db.createCliente({
-    nombre: nombre,
-    apellido: apellido || nombre, // Si no hay apellido, usar el nombre
-    email: email || null,
-    telefono,
-    tipo_cliente_id: 1,
-    created_at: new Date().toISOString()
-});
+        const nuevoCliente = await db.createCliente({
+            nombre: nombre,
+            apellido: apellido || nombre, // Si no hay apellido, usar el nombre
+            email: email || null,
+            telefono,
+            tipo_cliente_id: 1,
+            created_at: new Date().toISOString()
+        });
 
         console.log('✅ Cliente registrado:', nuevoCliente);
 
         // Generar token JWT
         const token = jwt.sign(
-            { 
-                id: nuevoCliente.id, 
+            {
+                id: nuevoCliente.id,
                 email: nuevoCliente.email,
                 tipo: 'cliente'
             },
@@ -102,7 +102,7 @@ const login = async (req, res) => {
 
         // Buscar cliente por email o teléfono
         let cliente = null;
-        
+
         if (email) {
             cliente = await db.getClienteByEmail(email);
         } else if (telefono) {
@@ -127,8 +127,8 @@ const login = async (req, res) => {
 
         // Generar token JWT
         const token = jwt.sign(
-            { 
-                id: cliente.id, 
+            {
+                id: cliente.id,
                 email: cliente.email,
                 tipo: 'cliente'
             },
@@ -145,6 +145,7 @@ const login = async (req, res) => {
                 cliente: {
                     id: cliente.id,
                     nombre: cliente.nombre,
+                    apellido: cliente.apellido,
                     email: cliente.email,
                     telefono: cliente.telefono
                 },
@@ -168,9 +169,9 @@ const login = async (req, res) => {
 const getPerfil = async (req, res) => {
     try {
         const clienteId = req.user.id; // Viene del middleware de autenticación
-        
+
         const cliente = await db.getClienteById(clienteId);
-        
+
         if (!cliente) {
             return res.status(404).json({
                 success: false,
@@ -208,11 +209,11 @@ const actualizarPerfil = async (req, res) => {
         const { nombre, email, telefono, password } = req.body;
 
         const updateData = {};
-        
+
         if (nombre) updateData.nombre = nombre;
         if (email) updateData.email = email;
         if (telefono) updateData.telefono = telefono;
-        
+
         // Password deshabilitado - tabla sin esa columna
         // TODO: Agregar soporte para password cuando se agregue la columna
 
@@ -246,7 +247,7 @@ const verificarToken = (req, res, next) => {
     try {
         // Obtener token del header
         const token = req.headers.authorization?.split(' ')[1];
-        
+
         if (!token) {
             return res.status(401).json({
                 success: false,
@@ -257,7 +258,7 @@ const verificarToken = (req, res, next) => {
         // Verificar token
         const decoded = jwt.verify(token, JWT_SECRET);
         req.user = decoded;
-        
+
         next();
 
     } catch (error) {

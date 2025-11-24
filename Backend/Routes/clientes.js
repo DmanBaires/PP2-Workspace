@@ -7,7 +7,7 @@ const db = require('../config');
 router.get('/', async (req, res) => {
     try {
         const clientes = await db.getClientes();
-        
+
         res.json({
             success: true,
             data: clientes
@@ -27,14 +27,14 @@ router.get('/:id', async (req, res) => {
     try {
         const { id } = req.params;
         const cliente = await db.getClienteById(parseInt(id));
-        
+
         if (!cliente) {
             return res.status(404).json({
                 success: false,
                 message: 'Cliente no encontrado'
             });
         }
-        
+
         res.json({
             success: true,
             data: cliente
@@ -54,29 +54,38 @@ router.post('/', async (req, res) => {
     try {
         const {
             nombre,
+            apellido,
             email,
             telefono,
             tipo_cliente_id,
-            observaciones
         } = req.body;
-        
+
         // Validaciones
-        if (!nombre || !telefono) {
+        if (!nombre || !apellido || !telefono) {
             return res.status(400).json({
                 success: false,
-                message: 'Faltan campos requeridos: nombre, telefono'
+                message: 'Faltan campos requeridos: nombre, apellido, telefono'
             });
         }
-        
+
+        // Verificar si ya existe un cliente con ese teléfono
+        const clienteExistente = await db.getClienteByTelefono(telefono);
+        if (clienteExistente) {
+            return res.status(200).json({
+                success: true,
+                message: 'Cliente existente encontrado',
+                data: clienteExistente
+            });
+        }
+
         const nuevoCliente = await db.createCliente({
             nombre,
+            apellido,
             email: email || null,
             telefono,
-            tipo_cliente_id: parseInt(tipo_cliente_id) || 1,
-            observaciones: observaciones || '',
-            created_at: new Date().toISOString()
+            tipo_cliente_id: parseInt(tipo_cliente_id) || 1, created_at: new Date().toISOString()
         });
-        
+
         res.status(201).json({
             success: true,
             message: 'Cliente creado exitosamente',
@@ -97,21 +106,21 @@ router.put('/:id', async (req, res) => {
     try {
         const { id } = req.params;
         const updateData = { ...req.body };
-        
+
         // Convertir tipos si es necesario
         if (updateData.tipo_cliente_id) {
             updateData.tipo_cliente_id = parseInt(updateData.tipo_cliente_id);
         }
-        
+
         const clienteActualizado = await db.updateCliente(parseInt(id), updateData);
-        
+
         if (!clienteActualizado) {
             return res.status(404).json({
                 success: false,
                 message: 'Cliente no encontrado'
             });
         }
-        
+
         res.json({
             success: true,
             message: 'Cliente actualizado exitosamente',
@@ -131,9 +140,9 @@ router.put('/:id', async (req, res) => {
 router.delete('/:id', async (req, res) => {
     try {
         const { id } = req.params;
-        
+
         await db.client.delete(`/clientes?id=eq.${id}`);
-        
+
         res.json({
             success: true,
             message: 'Cliente eliminado exitosamente'
@@ -152,11 +161,11 @@ router.delete('/:id', async (req, res) => {
 router.get('/:id/reservas', async (req, res) => {
     try {
         const { id } = req.params;
-        
+
         const response = await db.client.get(
             `/reservas?cliente_id=eq.${id}&order=fecha.desc`
         );
-        
+
         res.json({
             success: true,
             data: response.data
