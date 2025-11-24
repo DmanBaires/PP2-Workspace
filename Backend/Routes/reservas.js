@@ -85,7 +85,8 @@ router.get('/:id', async (req, res) => {
     }
 });
 
-// POST /api/reservas - Crear nueva reserva
+
+// ✅ POST /api/reservas - Crear nueva reserva con verificación en Supabase
 router.post('/', async (req, res) => {
     try {
         const {
@@ -95,13 +96,10 @@ router.post('/', async (req, res) => {
             hora_inicio,
             hora_fin,
             precio_total,
-            estado_id,
-            seña_pagada,
-            monto_seña,
             observaciones
         } = req.body;
 
-        // Validaciones
+        // Validaciones básicas
         if (!cancha_id || !cliente_id || !fecha || !hora_inicio || !hora_fin) {
             return res.status(400).json({
                 success: false,
@@ -109,43 +107,74 @@ router.post('/', async (req, res) => {
             });
         }
 
-        // Verificar disponibilidad
-        const disponible = await db.verificarDisponibilidad(
-            parseInt(cancha_id),
-            fecha,
-            hora_inicio,
-            hora_fin
-        );
+        const headers = {
+            apikey: SUPABASE_API_KEY,
+            Authorization: `Bearer ${SUPABASE_API_KEY}`,
+            Prefer: 'return=representation',
+            'Content-Type': 'application/json'
+        };
 
-        if (!disponible) {
+        // ✅ Paso 1: Verificar reservas existentes para la misma cancha y fecha
+        const urlReservas = `${SUPABASE_URL}/reservas?cancha_id=eq.${cancha_id}&fecha=eq.${fecha}`;
+        const reservasExistentes = await axios.get(urlReservas, { headers });
+
+        const conflictoReserva = reservasExistentes.data.some(r =>
+            (hora_inicio < r.hora_fin && hora_fin > r.hora_inicio)
+        );
+        if (conflictoReserva) {
             return res.status(409).json({
                 success: false,
-                message: 'La cancha no está disponible en ese horario'
+                message: 'La cancha no está disponible en ese horario (conflicto con otra reserva)'
             });
         }
 
-        // Crear reserva
-        const nuevaReserva = await db.createReserva({
+        // ✅ Paso 2: Verificar bloqueos horarios
+        const urlBloqueos = `${SUPABASE_URL}/bloqueos_horarios?cancha_id=eq.${cancha_id}&fecha_inicio=lte.${fecha}&fecha_fin=gte.${fecha}`;
+        const bloqueos = await axios.get(urlBloqueos, { headers });
+
+        const conflictoBloqueo = bloqueos.data.some(b =>
+            (hora_inicio < b.hora_fin && hora_fin > b.hora_inicio)
+        );
+        if (conflictoBloqueo) {
+            return res.status(409).json({
+                success: false,
+                message: 'Horario bloqueado para esta cancha'
+            });
+        }
+
+        // ✅ Paso 3: Verificar días bloqueados
+        const urlDiasBloqueados = `${SUPABASE_URL}/dias_bloqueados?fecha=eq.${fecha}`;
+        const diasBloqueados = await axios.get(urlDiasBloqueados, { headers });
+
+        if (diasBloqueados.data.length > 0) {
+            return res.status(409).json({
+                success: false,
+                message: 'Este día está bloqueado para reservas'
+            });
+        }
+
+        // ✅ Si todo está OK, crear la reserva en Supabase
+        const nuevaReserva = {
             cancha_id: parseInt(cancha_id),
             cliente_id: parseInt(cliente_id),
             fecha,
             hora_inicio,
             hora_fin,
             precio_total: parseFloat(precio_total),
-            estado_id: parseInt(estado_id) || 1, // 1 = pendiente por defecto
-            seña_pagada: seña_pagada || false,
-            monto_seña: monto_seña ? parseFloat(monto_seña) : 0,
-            observaciones: observaciones || '',
-            created_at: new Date().toISOString()
-        });
+            estado_id: 1, // Estado pendiente por defecto
+            observaciones: observaciones || ''
+        };
+
+        const response = await axios.post(`${SUPABASE_URL}/reservas`, nuevaReserva, { headers });
 
         res.status(201).json({
             success: true,
             message: 'Reserva creada exitosamente',
-            data: nuevaReserva
+            data: response.data[0]
         });
+
     } catch (error) {
-        console.error('Error creando reserva:', error);
+        console.error('Error creando reserva:', error.message);
         res.status(500).json({
             success: false,
             message: 'Error al crear la reserva',
@@ -153,6 +182,7 @@ router.post('/', async (req, res) => {
         });
     }
 });
+
 
 // PUT /api/reservas/:id - Actualizar reserva
 router.put('/:id', async (req, res) => {
