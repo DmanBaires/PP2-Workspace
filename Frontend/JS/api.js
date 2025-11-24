@@ -1,3 +1,5 @@
+
+
 // js/api.js - Funciones para comunicarse con el backend
 
 // Función auxiliar para hacer peticiones HTTP
