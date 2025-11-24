@@ -100,55 +100,88 @@ const login = async (req, res) => {
 
         console.log('🔐 Intento de login:', { email, telefono });
 
-        // Buscar cliente por email o teléfono
-        let cliente = null;
+        // Buscar primero en usuarios (para admins)
+        let usuario = null;
+        let esAdmin = false;
 
         if (email) {
-            cliente = await db.getClienteByEmail(email);
-        } else if (telefono) {
-            cliente = await db.getClienteByTelefono(telefono);
-        } else {
-            return res.status(400).json({
-                success: false,
-                message: 'Debes proporcionar email o teléfono'
-            });
+            usuario = await db.getUsuarioByEmail(email);
+            if (usuario) {
+                esAdmin = true;
+                console.log('✅ Usuario encontrado en tabla usuarios (rol:', usuario.rol, ')');
+            }
         }
 
-        if (!cliente) {
-            return res.status(401).json({
-                success: false,
-                message: 'Credenciales inválidas'
-            });
+        // Si no se encontró en usuarios, buscar en clientes
+        let cliente = null;
+        if (!usuario) {
+            if (email) {
+                cliente = await db.getClienteByEmail(email);
+            } else if (telefono) {
+                cliente = await db.getClienteByTelefono(telefono);
+            } else {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Debes proporcionar email o teléfono'
+                });
+            }
+
+            if (!cliente) {
+                return res.status(401).json({
+                    success: false,
+                    message: 'Credenciales inválidas'
+                });
+            }
+
+            console.log('✅ Cliente encontrado en tabla clientes');
         }
 
         // Verificar contraseña (DESHABILITADO - tabla sin columna password)
-        // Por ahora, solo verifica que exista el cliente
+        // Por ahora, solo verifica que exista el usuario/cliente
         // TODO: Agregar columna password a la tabla clientes en Supabase
 
         // Generar token JWT
+        const tokenData = esAdmin ? {
+            id: usuario.id,
+            email: usuario.email,
+            tipo: 'admin',
+            rol: usuario.rol
+        } : {
+            id: cliente.id,
+            email: cliente.email,
+            tipo: 'cliente'
+        };
+
         const token = jwt.sign(
-            {
-                id: cliente.id,
-                email: cliente.email,
-                tipo: 'cliente'
-            },
+            tokenData,
             JWT_SECRET,
             { expiresIn: '7d' }
         );
 
-        console.log('✅ Login exitoso:', cliente.id);
+        console.log('✅ Login exitoso:', esAdmin ? usuario.id : cliente.id);
+
+        // Preparar datos de respuesta
+        const responseData = esAdmin ? {
+            id: usuario.id,
+            nombre: usuario.nombre,
+            apellido: usuario.apellido,
+            email: usuario.email,
+            rol: usuario.rol,
+            telefono: usuario.telefono || null
+        } : {
+            id: cliente.id,
+            nombre: cliente.nombre,
+            apellido: cliente.apellido,
+            email: cliente.email,
+            telefono: cliente.telefono,
+            rol: 'cliente'
+        };
 
         res.json({
             success: true,
             message: 'Login exitoso',
             data: {
-                cliente: {
-                    id: cliente.id,
-                    nombre: cliente.nombre,
-                    apellido: cliente.apellido,
-                    email: cliente.email,
-                    telefono: cliente.telefono
-                },
+                ...responseData,
                 token
             }
         });

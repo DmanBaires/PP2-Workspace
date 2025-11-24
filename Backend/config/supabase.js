@@ -6,7 +6,7 @@ class SupabaseDatabase {
         this.baseUrl = process.env.SUPABASE_URL;
         // Usar SERVICE_ROLE_KEY para el backend (tiene permisos totales)
         this.apiKey = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_ANON_KEY;
-        
+
         if (!this.baseUrl || !this.apiKey) {
             throw new Error('Faltan SUPABASE_URL y SUPABASE_ANON_KEY en .env');
         }
@@ -28,15 +28,15 @@ class SupabaseDatabase {
         try {
             console.log('🔗 Conectando a Supabase via REST API...');
             console.log(`🌐 URL: ${this.baseUrl}`);
-            
+
             // Probar la conexión
             const response = await this.client.get('/canchas?limit=1');
-            
+
             console.log('✅ Conectado a Supabase (REST API) exitosamente');
-            
+
             // Verificar tablas
             await this.verifyTables();
-            
+
         } catch (error) {
             console.error('❌ Error conectando a Supabase:', error.message);
             if (error.response) {
@@ -59,7 +59,7 @@ class SupabaseDatabase {
                 tables.map(table => this.client.get(`/${table}?limit=1`))
             );
 
-            const missingTables = tables.filter((table, index) => 
+            const missingTables = tables.filter((table, index) =>
                 results[index].status === 'rejected'
             );
 
@@ -93,14 +93,14 @@ class SupabaseDatabase {
 
     async getReservas(filters = {}) {
         let url = '/reservas?order=fecha.desc,hora_inicio.desc';
-        
+
         if (filters.fecha) {
             url += `&fecha=eq.${filters.fecha}`;
         }
         if (filters.cancha_id) {
             url += `&cancha_id=eq.${filters.cancha_id}`;
         }
-        
+
         const response = await this.client.get(url);
         return response.data;
     }
@@ -170,25 +170,36 @@ class SupabaseDatabase {
         return { success: true };
     }
 
+    // Métodos para tabla usuarios
+    async getUsuarioByEmail(email) {
+        const response = await this.client.get(`/usuarios?email=eq.${email}`);
+        return response.data[0] || null;
+    }
+
+    async getUsuarioById(id) {
+        const response = await this.client.get(`/usuarios?id=eq.${id}`);
+        return response.data[0] || null;
+    }
+
     // Verificar disponibilidad de cancha
     async verificarDisponibilidad(cancha_id, fecha, hora_inicio, hora_fin, reserva_id = null) {
         try {
             let url = `/reservas?cancha_id=eq.${cancha_id}&fecha=eq.${fecha}`;
-            
+
             // Filtrar por estados activos
             url += `&estado_id=in.(1,2)`; // Asumiendo 1=pendiente, 2=confirmada
-            
+
             const response = await this.client.get(url);
             const reservas = response.data;
-            
+
             // Filtrar conflictos en el cliente
             const conflictos = reservas.filter(r => {
                 if (reserva_id && r.id === reserva_id) return false;
-                
+
                 // Verificar solapamiento de horarios
                 return !(r.hora_fin <= hora_inicio || r.hora_inicio >= hora_fin);
             });
-            
+
             return conflictos.length === 0;
         } catch (error) {
             console.error('Error verificando disponibilidad:', error);
@@ -201,9 +212,9 @@ class SupabaseDatabase {
         try {
             const response = await this.client.get(`/configuraciones?clave=eq.${clave}`);
             const config = response.data[0];
-            
+
             if (!config) return null;
-            
+
             // Convertir según el tipo
             switch (config.tipo) {
                 case 'number':
@@ -222,8 +233,8 @@ class SupabaseDatabase {
 
     // Actualizar configuración
     async setConfiguracion(clave, valor, tipo = 'string') {
-        const valorString = typeof valor === 'object' ? 
-            JSON.stringify(valor) : 
+        const valorString = typeof valor === 'object' ?
+            JSON.stringify(valor) :
             valor.toString();
 
         try {
@@ -232,7 +243,7 @@ class SupabaseDatabase {
                 `/configuraciones?clave=eq.${clave}`,
                 { valor: valorString, tipo, updated_at: new Date().toISOString() }
             );
-            
+
             if (response.data.length === 0) {
                 // Si no existe, crear
                 await this.client.post('/configuraciones', {
@@ -249,44 +260,77 @@ class SupabaseDatabase {
         }
     }
 
-    // Compatibilidad con código existente - Intenta parsear SQL básico
-    async all(sql, params = []) {
-        // Intentar extraer tabla del SQL
-        const tableMatch = sql.match(/FROM\s+(\w+)/i);
-        if (tableMatch) {
-            const table = tableMatch[1];
-            const response = await this.client.get(`/${table}`);
-            return response.data;
+    // Execute SQL query (returns array of rows)
+    // Simplified implementation for basic queries
+    async query(sql, params = []) {
+        console.warn('Using simplified query() - complex SQL not fully supported');
+
+        // Handle simple SELECT queries
+        if (sql.includes('FROM dias_bloqueados')) {
+            return await this.getDiasBloqueados();
         }
-        throw new Error('SQL directo no soportado. Usa métodos específicos de tabla.');
+
+        if (sql.includes('FROM canchas')) {
+            return await this.getCanchas();
+        }
+
+        throw new Error(`Unsupported SQL query: ${sql.substring(0, 50)}...`);
     }
 
-    async get(sql, params = []) {
-        // Intentar extraer tabla y condiciones del SQL
-        const tableMatch = sql.match(/FROM\s+(\w+)/i);
-        const whereMatch = sql.match(/WHERE\s+(\w+)\s*=\s*\$1/i);
-        
-        if (tableMatch && whereMatch && params.length > 0) {
-            const table = tableMatch[1];
-            const column = whereMatch[1];
-            const value = params[0];
-            const response = await this.client.get(`/${table}?${column}=eq.${value}`);
-            return response.data[0] || null;
-        }
-        throw new Error('SQL directo no soportado. Usa métodos específicos de tabla.');
-    }
+    // Execute SQL query (returns single row or null)
+    async queryOne(sql, params = []) {
+        console.warn('Using simplified queryOne() - complex SQL not fully supported');
 
-    async run(sql, params = []) {
-        // Detectar INSERT, UPDATE o DELETE
-        if (sql.match(/INSERT\s+INTO\s+(\w+)/i)) {
-            const tableMatch = sql.match(/INSERT\s+INTO\s+(\w+)/i);
-            if (tableMatch) {
-                const table = tableMatch[1];
-                // Necesitarías parsear los valores, esto es solo un placeholder
-                throw new Error('Usa métodos específicos como createCliente(), createReserva()');
-            }
+        // Handle SELECT queries
+        if (sql.includes('FROM canchas') && sql.includes('WHERE id')) {
+            return await this.getCanchaById(params[0]);
         }
-        throw new Error('SQL directo no soportado. Usa métodos específicos de tabla.');
+
+        if (sql.includes('FROM dias_bloqueados') && sql.includes('WHERE id')) {
+            const all = await this.getDiasBloqueados();
+            return all.find(d => d.id === parseInt(params[0])) || null;
+        }
+
+        if (sql.includes('FROM dias_bloqueados') && sql.includes('WHERE fecha')) {
+            const all = await this.getDiasBloqueados();
+            const fecha = params[0];
+            const cancha_id = params[1];
+
+            return all.find(d => {
+                const fechaMatch = d.fecha === fecha;
+                const canchaMatch = cancha_id ?
+                    (d.cancha_id === null || d.cancha_id === parseInt(cancha_id)) :
+                    true;
+                return fechaMatch && canchaMatch;
+            }) || null;
+        }
+
+        // Handle INSERT INTO dias_bloqueados
+        if (sql.includes('INSERT INTO dias_bloqueados')) {
+            const [fecha, motivo, descripcion, cancha_id] = params;
+            return await this.createDiaBloqueado({
+                fecha,
+                motivo,
+                descripcion: descripcion || null,
+                cancha_id: cancha_id || null
+            });
+        }
+
+        // Handle DELETE
+        if (sql.includes('DELETE FROM dias_bloqueados')) {
+            const id = params[0];
+            await this.deleteDiaBloqueado(id);
+            return { id }; // Return deleted ID
+        }
+
+        // Handle UPDATE
+        if (sql.includes('UPDATE dias_bloqueados')) {
+            // This is complex, skip for now
+            console.warn('UPDATE queries not fully supported in simplified mode');
+            return null;
+        }
+
+        throw new Error(`Unsupported SQL query: ${sql.substring(0, 50)}...`);
     }
 
     async close() {

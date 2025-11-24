@@ -11,63 +11,46 @@ const diasBloqueadosController = {
         try {
             const { fecha_desde, fecha_hasta, futuro_solo, cancha_id } = req.query;
 
-            let query = `
-                SELECT
-                    db.id,
-                    db.fecha,
-                    db.motivo,
-                    db.descripcion,
-                    db.cancha_id,
-                    c.nombre as cancha_nombre,
-                    CASE
-                        WHEN db.cancha_id IS NULL THEN 'Todas las canchas'
-                        ELSE c.nombre
-                    END as alcance,
-                    (db.cancha_id IS NULL) as aplica_todas_canchas,
-                    db.created_at,
-                    db.updated_at
-                FROM dias_bloqueados db
-                LEFT JOIN canchas c ON db.cancha_id = c.id
-                WHERE 1=1
-            `;
+            // Get all blocked days using the existing method
+            let diasBloqueados = await db.getDiasBloqueados();
 
-            const params = [];
-            let paramCount = 1;
-
-            // Filtrar por cancha específica
-            if (cancha_id) {
-                query += ` AND (db.cancha_id = $${paramCount} OR db.cancha_id IS NULL)`;
-                params.push(parseInt(cancha_id));
-                paramCount++;
-            }
-
-            // Filtrar por fecha desde
+            // Apply filters
             if (fecha_desde) {
-                query += ` AND db.fecha >= $${paramCount}`;
-                params.push(fecha_desde);
-                paramCount++;
+                diasBloqueados = diasBloqueados.filter(d => d.fecha >= fecha_desde);
             }
 
-            // Filtrar por fecha hasta
             if (fecha_hasta) {
-                query += ` AND db.fecha <= $${paramCount}`;
-                params.push(fecha_hasta);
-                paramCount++;
+                diasBloqueados = diasBloqueados.filter(d => d.fecha <= fecha_hasta);
             }
 
-            // Solo días futuros o de hoy
             if (futuro_solo === 'true') {
-                query += ` AND db.fecha >= CURRENT_DATE`;
+                const today = new Date().toISOString().split('T')[0];
+                diasBloqueados = diasBloqueados.filter(d => d.fecha >= today);
             }
 
-            query += ` ORDER BY db.fecha ASC`;
+            if (cancha_id) {
+                diasBloqueados = diasBloqueados.filter(d =>
+                    d.cancha_id === null || d.cancha_id === parseInt(cancha_id)
+                );
+            }
 
-            const diasBloqueados = await db.query(query, params);
+            // Get cancha names for enrichment
+            const canchas = await db.getCanchas();
+            const canchasMap = {};
+            canchas.forEach(c => canchasMap[c.id] = c.nombre);
+
+            // Enrich data with cancha names
+            const enrichedData = diasBloqueados.map(d => ({
+                ...d,
+                cancha_nombre: d.cancha_id ? canchasMap[d.cancha_id] : null,
+                alcance: d.cancha_id ? canchasMap[d.cancha_id] : 'Todas las canchas',
+                aplica_todas_canchas: d.cancha_id === null
+            }));
 
             res.status(200).json({
                 success: true,
-                count: diasBloqueados.length,
-                data: diasBloqueados
+                count: enrichedData.length,
+                data: enrichedData
             });
 
         } catch (error) {
